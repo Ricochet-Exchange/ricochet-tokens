@@ -27,7 +27,7 @@ This project creates streamable SushiSwap LP tokens. These tokens can be used in
   * `msg.sender` has approved `SLPx` contract to spend their SLP
   * `SLPx` contract has approved `MiniChef` to transfer SLP tokens
 * Post-conditions
-  * SLP tokens are transfered to `SLPx` contract
+  * SLP tokens are transferred to `SLPx` contract
   * Transferred SLP tokens are deposited into `MiniChef`
   * `SLPx` tokens are minted to `msg.sender`
 * :information_source: Also need to override `upgradeTo` method
