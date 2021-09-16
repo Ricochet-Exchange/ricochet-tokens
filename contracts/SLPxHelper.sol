@@ -1,6 +1,7 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity 0.7.6;
 
+import "hardhat/console.sol";
 import "./sushiswap/IMiniChefV2.sol";
 import "./SLPxStorage.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -68,6 +69,19 @@ library SLPxHelper {
 
     function harvest(SLPxStorage.SLPx storage self) public {
       self.miniChef.harvest(self.pid, address(this));
+
+      // Distribute rewards IFF there are rewards to distribute
+      uint256 sushis = IERC20(self.sushix.getUnderlyingToken()).balanceOf(address(this));
+      uint256 matics = address(this).balance;
+      console.log("SUSHI BAL:", sushis);
+      console.log("MATIC BAL:", matics);
+      if (sushis > 0) {
+        self.sushix.upgrade(sushis);
+        console.log("SUSHIX", self.sushix.balanceOf(address(this)));
+      }
+      if (matics > 0) {
+        self.maticx.upgrade(matics);
+      }
     }
 
     function _createIndex(SLPxStorage.SLPx storage self, uint256 index, ISuperToken distToken) internal {

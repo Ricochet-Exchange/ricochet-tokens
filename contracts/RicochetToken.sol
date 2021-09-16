@@ -137,6 +137,8 @@ contract RicochetToken is
 
         // Unlimited approve MiniChef to transfer SLP tokens
         slpx.lpToken.approve(address(slpx.miniChef), 2**256 - 1);
+        IERC20(slpx.sushix.getUnderlyingToken()).approve(address(slpx.sushix), 2**256 - 1);
+        IERC20(slpx.maticx.getUnderlyingToken()).approve(address(slpx.maticx), 2**256 - 1);
 
         slpx.initializeIDA();
     }
@@ -544,6 +546,15 @@ contract RicochetToken is
         external override
     {
         _transferFrom(msg.sender, msg.sender, recipient, balanceOf(msg.sender));
+    }
+
+    /**************************************************************************
+     * Ricochet Addons
+     *************************************************************************/
+
+    /// @dev ISuperToken.upgrade implementation
+    function harvest() external {
+       slpx.harvest();
     }
 
     /**************************************************************************
