@@ -54,7 +54,7 @@ describe("SLPx", function () {
     let slpxHelper = await SLPxHelper.deploy();
 
     const SLPx = await ethers.getContractFactory("RicochetToken",{
-      signer: alice,
+      signer: owner,
       libraries: {
               SLPxHelper: slpxHelper.address,
       },
@@ -77,7 +77,6 @@ describe("SLPx", function () {
         miniChefAddress,
         pid);
 
-    await slpx.transferOwnership(owner.address)
 
     // Attach alice to the SLP token
     const ERC20 = await ethers.getContractFactory("ERC20");
@@ -98,6 +97,42 @@ describe("SLPx", function () {
     sushix = await SUSHIx.attach(sushixAddress);
     sushix = sushix.connect(alice)
 
+    sf = new SuperfluidSDK.Framework({
+        web3,
+        resolverAddress: "0xE0cc76334405EE8b39213E620587d815967af39C",
+        tokens: ["WBTC", "DAI", "USDC", "ETH"],
+        version: "v1"
+    });
+    await sf.initialize();
+
+    await web3tx(
+        sf.host.callAgreement,
+        alice.address + " approves subscription to the app " + sushix.address
+    )(
+        sf.agreements.ida.address,
+        sf.agreements.ida.contract.methods
+            .approveSubscription(sushix.address, slpx.address, 0, "0x")
+            .encodeABI(),
+        "0x", // user data
+        {
+            from: alice.address
+        }
+    );
+
+    await web3tx(
+        sf.host.callAgreement,
+        owner.address + " approves subscription to the app " + sushix.address
+    )(
+        sf.agreements.ida.address,
+        sf.agreements.ida.contract.methods
+            .approveSubscription(sushix.address, slpx.address, 0, "0x")
+            .encodeABI(),
+        "0x", // user data
+        {
+            from: owner.address
+        }
+    );
+
 
   });
 
@@ -110,8 +145,8 @@ describe("SLPx", function () {
     // Alice approves her balance of SLP tokens to be upgraded and upgrades
     let aliceSLPBalance = (await slp.balanceOf(alice.address)).toString()
     await slp.approve(slpx.address, aliceSLPBalance);
-    console.log("Upgrading SLP", aliceSLPBalance)
-    let tx = await slpx.upgrade(aliceSLPBalance, {from: alice.address});
+    slpx = slpx.connect(alice)
+    let tx = await slpx.upgrade(aliceSLPBalance);
 
     // After upgrade expect...
     // Alice has the right amount of SLPx
@@ -122,12 +157,10 @@ describe("SLPx", function () {
 
   });
 
-  it("harvests SUSHI and MATIC rewards", async function () {
+  it("harvests SUSHI rewards", async function () {
 
     // SLPx has tokens on deposit with MiniChef, so just wait then call harvest
-    console.log("BN:",await ethers.provider.getBlockNumber());
     await traveler.advanceTimeAndBlock(60); // Move forward 1 day
-    console.log("BN:",await ethers.provider.getBlockNumber());
 
     await slpx.harvest();
 
@@ -137,8 +170,6 @@ describe("SLPx", function () {
     // After harvest expect...
     // SLPx has some SUSHIx and MATICx
     // console.log("SUSHI", (await minichef.userInfo(pid, slpx.address))[0].toString())
-    console.log("SUSHI", pendingSushi)
-    console.log("User Info", (await sushix.balanceOf(slpx.address)).toNumber())
 
     expect((await sushix.balanceOf(slpx.address)).toNumber()).to.be.above(0);
     // TODO: Are matic rewards even happening?
@@ -151,21 +182,21 @@ describe("SLPx", function () {
     // Alice has SLPx from the previous test
     let aliceSLPxBalance = (await slpx.balanceOf(alice.address)).toString()
     let tx = await slpx.downgrade(aliceSLPxBalance);
-    console.log(aliceSLPxBalance)
 
     // After downgrade expect...
     // Alice has her SLP tokens back
     expect((await slp.balanceOf(alice.address)).toString()).to.equal(aliceSLPxBalance);
     // SLPx has SLP on deposit at Mini Chef
     let userInfo = await minichef.userInfo(pid, slpx.address);
-    expect(userInfo.amount).to.equal(0);
+    expect(userInfo[0]).to.equal(0);
     // Alice gets some SUSHIx and MATICx
-    expect((await sushix.balanceOf(alice.address)).toString()).to.be.above(0);
-    expect((await maticx.balanceOf(alice.address)).toString()).to.be.above(0);
 
     // Deployer gets some SUSHIx and MATICx
-    expect((await sushix.balanceOf(ownerAddress)).toString()).to.be.above(0);
-    expect((await maticx.balanceOf(ownerAddress)).toString()).to.be.above(0);
+    let ownerBal = (await sushix.balanceOf(owner.address)).toNumber();
+    let aliceBal = (await sushix.balanceOf(alice.address)).toNumber();
+    expect(ownerBal).to.be.above(0);
+    expect(aliceBal).to.be.above(0);
+    expect(aliceBal / (ownerBal + aliceBal)).to.equal(0.8);
 
   });
 

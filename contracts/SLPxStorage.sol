@@ -25,6 +25,7 @@ library SLPxStorage {
     uint256 pid;
     IInstantDistributionAgreementV1 ida;
     ISuperfluid host;
+    address owner;
   }
 
 }

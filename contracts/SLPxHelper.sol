@@ -32,9 +32,23 @@ library SLPxHelper {
     }
 
     function upgrade(SLPxStorage.SLPx storage self, uint256 amount) public  {
+      // Havest and distribute SUSHI rewards if there's any pending
+      if (self.miniChef.pendingSushi(self.pid, address(this)) > 0) {
+        harvest(self);
+      }
+
       self.miniChef.deposit(self.pid, amount, address(this));
       _updateSubscription(self, 0, msg.sender, uint128(amount), self.sushix);
       _updateSubscription(self, 1, msg.sender, uint128(amount), self.maticx);
+
+      // TODO: this is repeated code found in downgrade
+      // Update the owners IDA shares
+      uint128 totalUnitsApproved;
+      uint128 totalUnitsPending;
+      (,,totalUnitsApproved,totalUnitsPending) = _getIDAShares(self, 0, self.sushix);
+      totalUnitsApproved = uint128(1000000) * (totalUnitsApproved + totalUnitsPending) / uint128(800000) - (totalUnitsApproved + totalUnitsPending);
+      _updateSubscription(self, 0, self.owner, totalUnitsApproved, self.sushix);
+      _updateSubscription(self, 1, self.owner, totalUnitsApproved, self.maticx);
     }
 
     function downgrade(SLPxStorage.SLPx storage self, uint256 amount) public  {
@@ -48,7 +62,7 @@ library SLPxHelper {
         distribute(self, 1, self.maticx);
       }
 
-      // Get the senders current IDA shares
+      // Update the callers IDA shares
       (bool exist,
        bool approved,
        uint128 units,
@@ -60,6 +74,17 @@ library SLPxHelper {
        units,
        pendingDistribution) = _getIDAShares(self, 1, self.maticx, msg.sender);
       _updateSubscription(self, 1, msg.sender, units - uint128(amount), self.maticx);
+
+
+      // TODO: Don't repeat this in harvest and upgrade()
+      // Update the owners IDA shares
+      uint128 pendingShares;
+      (,,units,pendingShares) = _getIDAShares(self, 0, self.sushix);
+      units = uint128(1000000) * (units + pendingShares) / uint128(800000) - (units + pendingShares);
+      _updateSubscription(self, 0, self.owner, units, self.sushix);
+      _updateSubscription(self, 1, self.owner, units, self.maticx);
+
+
 
     }
 
@@ -73,14 +98,19 @@ library SLPxHelper {
       // Distribute rewards IFF there are rewards to distribute
       uint256 sushis = IERC20(self.sushix.getUnderlyingToken()).balanceOf(address(this));
       uint256 matics = address(this).balance;
-      console.log("SUSHI BAL:", sushis);
-      console.log("MATIC BAL:", matics);
       if (sushis > 0) {
         self.sushix.upgrade(sushis);
-        console.log("SUSHIX", self.sushix.balanceOf(address(this)));
       }
       if (matics > 0) {
         self.maticx.upgrade(matics);
+      }
+
+      // Distribute rewards IFF there are rewards to distribute
+      if (self.sushix.balanceOf(address(this)) > 0) {
+        distribute(self, 0, self.sushix);
+      }
+      if (self.maticx.balanceOf(address(this)) > 0) {
+        distribute(self, 1, self.maticx);
       }
     }
 
@@ -111,7 +141,7 @@ library SLPxHelper {
              index,
              // one share for the to get it started
              subscriber,
-             shares / 1e9,
+             shares,
              new bytes(0) // placeholder ctx
          ),
          new bytes(0) // user data
@@ -142,6 +172,17 @@ library SLPxHelper {
                                                                     address(this),
                                                                     index,
                                                                     streamer);
+    }
+
+    function _getIDAShares(SLPxStorage.SLPx storage self, uint32 index, ISuperToken idaToken) internal view returns (bool exist,
+            uint128 indexValue,
+            uint128 totalUnitsApproved,
+            uint128 totalUnitsPending) {
+
+      (exist,indexValue,totalUnitsApproved,totalUnitsPending) = self.ida.getIndex(
+                                                                    idaToken,
+                                                                    address(this),
+                                                                    index);
     }
 
 }

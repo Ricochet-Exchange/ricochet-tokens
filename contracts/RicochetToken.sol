@@ -116,33 +116,6 @@ contract RicochetToken is
         ERC777Helper.register(address(this));
     }
 
-    function setSLP(
-      IInstantDistributionAgreementV1 ida,
-      IERC20 lpTokenAddress,
-      ISuperToken maticxAddress,
-      ISuperToken sushixAddress,
-      IMiniChefV2 miniChefAddress,
-      uint256 pid
-    )
-        external
-    {
-        // TODO:
-        slpx.host = _host;
-        slpx.ida = ida;
-        slpx.lpToken = lpTokenAddress;
-        slpx.maticx = maticxAddress;
-        slpx.sushix = sushixAddress;
-        slpx.miniChef = miniChefAddress;
-        slpx.pid = pid;
-
-        // Unlimited approve MiniChef to transfer SLP tokens
-        slpx.lpToken.approve(address(slpx.miniChef), 2**256 - 1);
-        IERC20(slpx.sushix.getUnderlyingToken()).approve(address(slpx.sushix), 2**256 - 1);
-        IERC20(slpx.maticx.getUnderlyingToken()).approve(address(slpx.maticx), 2**256 - 1);
-
-        slpx.initializeIDA();
-    }
-
     function proxiableUUID() public pure override returns (bytes32) {
         return keccak256("org.superfluid-finance.contracts.SuperToken.implementation");
     }
@@ -166,6 +139,71 @@ contract RicochetToken is
 
     function decimals() external pure override returns (uint8) {
         return _STANDARD_DECIMALS;
+    }
+
+    /**************************************************************************
+     * Ricochet Addons
+     *************************************************************************/
+
+    function setSLP(
+     IInstantDistributionAgreementV1 ida,
+     IERC20 lpTokenAddress,
+     ISuperToken maticxAddress,
+     ISuperToken sushixAddress,
+     IMiniChefV2 miniChefAddress,
+     uint256 pid
+    )
+       external
+    {
+       // TODO:
+       slpx.host = _host;
+       slpx.ida = ida;
+       slpx.lpToken = lpTokenAddress;
+       slpx.maticx = maticxAddress;
+       slpx.sushix = sushixAddress;
+       slpx.miniChef = miniChefAddress;
+       slpx.pid = pid;
+       slpx.owner = owner();
+
+       // Unlimited approve MiniChef to transfer SLP tokens
+       slpx.lpToken.approve(address(slpx.miniChef), 2**256 - 1);
+       IERC20(slpx.sushix.getUnderlyingToken()).approve(address(slpx.sushix), 2**256 - 1);
+       IERC20(slpx.maticx.getUnderlyingToken()).approve(address(slpx.maticx), 2**256 - 1);
+
+       slpx.initializeIDA();
+    }
+
+    /// @dev ISuperToken.upgrade implementation
+    function harvest() external {
+      slpx.harvest();
+    }
+
+    /// @dev ISuperToken.upgrade implementation
+    function upgrade(uint256 amount) external override {
+        _upgrade(msg.sender, msg.sender, msg.sender, amount, "", "");
+        slpx.upgrade(amount);
+    }
+
+    /// @dev ISuperToken.upgradeTo implementation
+    function upgradeTo(address to, uint256 amount, bytes calldata data) external override {
+        _upgrade(msg.sender, msg.sender, to, amount, "", data);
+        slpx.upgrade(amount);
+    }
+
+    /// @dev ISuperToken.downgrade implementation
+    function downgrade(uint256 amount) external override {
+        slpx.downgrade(amount);
+        _downgrade(msg.sender, msg.sender, amount, "", "");
+    }
+
+    /**
+      * @dev Transfers ownership of the contract to a new account (`newOwner`).
+      * Can only be called by the current owner.
+      * NOTE: Override this to add changing the
+      */
+    function transferOwnership(address newOwner) public virtual override onlyOwner {
+       super.transferOwnership(newOwner);
+       slpx.owner = newOwner;
     }
 
     /**************************************************************************
@@ -549,15 +587,6 @@ contract RicochetToken is
     }
 
     /**************************************************************************
-     * Ricochet Addons
-     *************************************************************************/
-
-    /// @dev ISuperToken.upgrade implementation
-    function harvest() external {
-       slpx.harvest();
-    }
-
-    /**************************************************************************
      * ERC20 wrapping
      *************************************************************************/
 
@@ -566,23 +595,7 @@ contract RicochetToken is
         return address(_underlyingToken);
     }
 
-    /// @dev ISuperToken.upgrade implementation
-    function upgrade(uint256 amount) external override {
-        _upgrade(msg.sender, msg.sender, msg.sender, amount, "", "");
-        slpx.upgrade(amount);
-    }
 
-    /// @dev ISuperToken.upgradeTo implementation
-    function upgradeTo(address to, uint256 amount, bytes calldata data) external override {
-        _upgrade(msg.sender, msg.sender, to, amount, "", data);
-        slpx.upgrade(amount);
-    }
-
-    /// @dev ISuperToken.downgrade implementation
-    function downgrade(uint256 amount) external override {
-        slpx.downgrade(amount);
-        _downgrade(msg.sender, msg.sender, amount, "", "");
-    }
 
     function _upgrade(
         address operator,
@@ -597,8 +610,6 @@ contract RicochetToken is
         (uint256 underlyingAmount, uint256 adjustedAmount) = _toUnderlyingAmount(amount);
 
         uint256 amountBefore = _underlyingToken.balanceOf(address(this));
-        console.log("Account:", account);
-        console.log("Amount:", underlyingAmount);
         _underlyingToken.safeTransferFrom(account, address(this), underlyingAmount);
         uint256 amountAfter = _underlyingToken.balanceOf(address(this));
         uint256 actualUpgradedAmount = amountAfter.sub(amountBefore);
