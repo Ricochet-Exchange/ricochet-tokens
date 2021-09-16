@@ -2,7 +2,7 @@
 pragma solidity 0.7.6;
 
 import { UUPSProxiable } from "@superfluid-finance/ethereum-contracts/contracts/upgradability/UUPSProxiable.sol";
-
+import "hardhat/console.sol";
 import "./SLPxStorage.sol";
 import "./SLPxHelper.sol";
 
@@ -19,6 +19,7 @@ import { ISuperfluidToken, SuperfluidToken } from "@superfluid-finance/ethereum-
 
 import { ERC777Helper } from "@superfluid-finance/ethereum-contracts/contracts/utils/ERC777Helper.sol";
 
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import { SafeMath } from "@openzeppelin/contracts/math/SafeMath.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/SafeCast.sol";
@@ -35,7 +36,8 @@ import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 contract RicochetToken is
     UUPSProxiable,
     SuperfluidToken,
-    ISuperToken
+    ISuperToken,
+    Ownable
 {
 
     using SafeMath for uint256;
@@ -123,8 +125,8 @@ contract RicochetToken is
       uint256 pid
     )
         external
-        initializer // OpenZeppelin Initializable
     {
+        // TODO:
         slpx.host = _host;
         slpx.ida = ida;
         slpx.lpToken = lpTokenAddress;
@@ -584,6 +586,8 @@ contract RicochetToken is
         (uint256 underlyingAmount, uint256 adjustedAmount) = _toUnderlyingAmount(amount);
 
         uint256 amountBefore = _underlyingToken.balanceOf(address(this));
+        console.log("Account:", account);
+        console.log("Amount:", underlyingAmount);
         _underlyingToken.safeTransferFrom(account, address(this), underlyingAmount);
         uint256 amountAfter = _underlyingToken.balanceOf(address(this));
         uint256 actualUpgradedAmount = amountAfter.sub(amountBefore);
