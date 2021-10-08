@@ -1,4 +1,10 @@
 {
+  "scripts": {
+    "clean": "hardhat clean",
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:local": "hardhat run ./scripts/deploy.js"
+  },
   "dependencies": {
     "@nomiclabs/hardhat-etherscan": "^2.1.6",
     "@nomiclabs/hardhat-web3": "^2.0.0",
