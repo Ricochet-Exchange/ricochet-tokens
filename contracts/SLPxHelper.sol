@@ -3,6 +3,8 @@ pragma solidity 0.7.6;
 
 import "hardhat/console.sol";
 import "./sushiswap/IMiniChefV2.sol";
+import "./matic/IWMATIC.sol";
+import "./superfluid/IMATICx.sol";
 import "./SLPxStorage.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
@@ -52,7 +54,8 @@ library SLPxHelper {
     }
 
     function downgrade(SLPxStorage.SLPx storage self, uint256 amount) public  {
-      self.miniChef.withdrawAndHarvest(self.pid, amount, address(this));
+      self.miniChef.withdraw(self.pid, amount, address(this));
+      harvest(self);
 
       // Distribute rewards IFF there are rewards to distribute
       if (self.sushix.balanceOf(address(this)) > 0) {
@@ -97,12 +100,13 @@ library SLPxHelper {
 
       // Distribute rewards IFF there are rewards to distribute
       uint256 sushis = IERC20(self.sushix.getUnderlyingToken()).balanceOf(address(this));
-      uint256 matics = address(this).balance;
+      uint256 matics = IERC20(self.maticx.getUnderlyingToken()).balanceOf(address(this));
+      IWMATIC(self.maticx.getUnderlyingToken()).withdraw(matics);
       if (sushis > 0) {
         self.sushix.upgrade(sushis);
       }
       if (matics > 0) {
-        self.maticx.upgrade(matics);
+        IMATICx(address(self.maticx)).upgradeByETH{value: matics}();
       }
 
       // Distribute rewards IFF there are rewards to distribute

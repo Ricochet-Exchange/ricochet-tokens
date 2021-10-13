@@ -160,7 +160,7 @@ describe("SLPx", function () {
   it("harvests SUSHI rewards", async function () {
 
     // SLPx has tokens on deposit with MiniChef, so just wait then call harvest
-    await traveler.advanceTimeAndBlock(60); // Move forward 1 day
+    await traveler.advanceTimeAndBlock(60); // Move forward 1 minute
 
     await slpx.harvest();
 
@@ -173,11 +173,14 @@ describe("SLPx", function () {
 
     expect((await sushix.balanceOf(slpx.address)).toNumber()).to.be.above(0);
     // TODO: Are matic rewards even happening?
-    // expect((await maticx.balanceOf(slpx.address)).toNumber()).to.be.above(0);
+    expect((await maticx.balanceOf(slpx.address)).toNumber()).to.be.above(0);
 
   });
 
   it("downgrades SLPx tokens", async function () {
+
+    // SLPx has tokens on deposit with MiniChef, so just wait then call harvest
+    await traveler.advanceTimeAndBlock(120); // Move forward 1 minute
 
     // Alice has SLPx from the previous test
     let aliceSLPxBalance = (await slpx.balanceOf(alice.address)).toString()
@@ -194,6 +197,13 @@ describe("SLPx", function () {
     // Deployer gets some SUSHIx and MATICx
     let ownerBal = (await sushix.balanceOf(owner.address)).toNumber();
     let aliceBal = (await sushix.balanceOf(alice.address)).toNumber();
+    expect(ownerBal).to.be.above(0);
+    expect(aliceBal).to.be.above(0);
+    expect(aliceBal / (ownerBal + aliceBal)).to.equal(0.8);
+
+    // Deployer gets some SUSHIx and MATICx
+    ownerBal = (await maticx.balanceOf(owner.address)).toNumber();
+    aliceBal = (await maticx.balanceOf(alice.address)).toNumber();
     expect(ownerBal).to.be.above(0);
     expect(aliceBal).to.be.above(0);
     expect(aliceBal / (ownerBal + aliceBal)).to.equal(0.8);

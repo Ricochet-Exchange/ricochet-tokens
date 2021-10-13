@@ -724,4 +724,6 @@ contract RicochetToken is
         _;
     }
 
+    fallback() external payable { }
+
 }
