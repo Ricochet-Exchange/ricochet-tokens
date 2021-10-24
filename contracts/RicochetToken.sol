@@ -31,6 +31,9 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
     using SafeCast for uint256;
     using SignedSafeMath for int256;
 
+    // Lock for Ricochet Token
+    bool public isLocked = true;
+
     /// @dev Superfluid contract
     ISuperfluid immutable internal _host;
 
@@ -71,6 +74,10 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
        return address(_host);
     }
 
+    // Ricochet Token Functions
+    function lock(bool _lockIt) public onlyOwner {
+      isLocked = _lockIt;
+    }
 
     /**************************************************************************
      * Real-time balance functions
@@ -217,6 +224,9 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
     )
         internal
     {
+        // This does nothing
+        // console.log("Is it locked?", isLocked);
+        // require(isLocked == false, "!unlocked");
         (int256 availableBalance,,) = realtimeBalanceOf(from, block.timestamp);
         require(availableBalance >= amount, "SuperfluidToken: move amount exceeds balance");
         _balances[from] = _balances[from].sub(amount);
@@ -234,6 +244,8 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
     )
         external override
     {
+      console.log("Is it locked?", isLocked);
+      require(isLocked == false, "!unlocked");
         address agreementClass = msg.sender;
         bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
         require(!FixedSizeData.hasData(slot, data.length), "SuperfluidToken: agreement already created");
