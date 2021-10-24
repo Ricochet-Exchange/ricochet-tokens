@@ -1,729 +1,445 @@
 // SPDX-License-Identifier: AGPLv3
+/* solhint-disable not-rely-on-time */
 pragma solidity 0.7.6;
 
-import { UUPSProxiable } from "@superfluid-finance/ethereum-contracts/contracts/upgradability/UUPSProxiable.sol";
 import "hardhat/console.sol";
-import "./SLPxStorage.sol";
-import "./SLPxHelper.sol";
+import { ISuperfluid } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import { ISuperAgreement } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperAgreement.sol";
+import { ISuperfluidGovernance } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluidGovernance.sol";
+import { ISuperfluidToken } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluidToken.sol";
 
-import {
-    ISuperfluid,
-    ISuperfluidGovernance,
-    ISuperToken,
-    ISuperAgreement,
-    IERC20,
-    IERC777,
-    TokenInfo
-} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
-import { ISuperfluidToken, SuperfluidToken } from "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperfluidToken.sol";
-
-import { ERC777Helper } from "@superfluid-finance/ethereum-contracts/contracts/utils/ERC777Helper.sol";
-
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import { Math } from "@openzeppelin/contracts/math/Math.sol";
 import { SafeMath } from "@openzeppelin/contracts/math/SafeMath.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/SafeCast.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { SignedSafeMath } from "@openzeppelin/contracts/math/SignedSafeMath.sol";
-import { IERC777Recipient } from "@openzeppelin/contracts/token/ERC777/IERC777Recipient.sol";
-import { IERC777Sender } from "@openzeppelin/contracts/token/ERC777/IERC777Sender.sol";
-import { Address } from "@openzeppelin/contracts/utils/Address.sol";
+import { FixedSizeData } from "@superfluid-finance/ethereum-contracts/contracts/utils/FixedSizeData.sol";
 
 
 /**
- * @title Superfluid's super token implementation
+ * @title Superfluid's token implementation
+ *
  * @author Superfluid
  */
-contract RicochetToken is
-    UUPSProxiable,
-    SuperfluidToken,
-    ISuperToken,
-    Ownable
+abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role based
 {
+
+    bytes32 private constant _REWARD_ADDRESS_CONFIG_KEY =
+        keccak256("org.superfluid-finance.superfluid.rewardAddress");
 
     using SafeMath for uint256;
     using SafeCast for uint256;
     using SignedSafeMath for int256;
-    using Address for address;
-    using ERC777Helper for ERC777Helper.Operators;
-    using SafeERC20 for IERC20;
-    using SLPxStorage for SLPxStorage.SLPx;
-    using SLPxHelper for SLPxStorage.SLPx;
 
-    uint8 constant private _STANDARD_DECIMALS = 18;
+    // Lock for Ricochet Token
+    bool public isLocked = true;
 
-    /* WARNING: NEVER RE-ORDER VARIABLES! Including the base contracts.
-       Always double-check that new
-       variables are added APPEND-ONLY. Re-ordering variables can
-       permanently BREAK the deployed proxy contract. */
+    // Owner controls the lock
 
-    /// @dev The underlying ERC20 token
-    IERC20 internal _underlyingToken;
+    /// @dev Superfluid contract
+    ISuperfluid immutable internal _host;
 
-    /// @dev Decimals of the underlying token
-    uint8 internal _underlyingDecimals;
+    /// @dev Active agreement bitmap
+    mapping(address => uint256) internal _inactiveAgreementBitmap;
 
-    /// @dev TokenInfo Name property
-    string internal _name;
+    /// @dev Settled balance for the account
+    mapping(address => int256) internal _balances;
 
-    /// @dev TokenInfo Symbol property
-    string internal _symbol;
-
-    /// @dev ERC20 Allowances Storage
-    mapping(address => mapping (address => uint256)) internal _allowances;
-
-    /// @dev ERC777 operators support data
-    ERC777Helper.Operators internal _operators;
-
-    SLPxStorage.SLPx internal slpx;
+    /// @dev Total supply
+    uint256 internal _totalSupply;
 
     // NOTE: for future compatibility, these are reserved solidity slots
-    // The sub-class of SuperToken solidity slot will start after _reserve22
-    uint256 internal _reserve22;
-    uint256 private _reserve23;
-    uint256 private _reserve24;
-    uint256 private _reserve25;
-    uint256 private _reserve26;
-    uint256 private _reserve27;
-    uint256 private _reserve28;
-    uint256 private _reserve29;
-    uint256 private _reserve30;
-    uint256 internal _reserve31;
+    // The sub-class of SuperfluidToken solidity slot will start after _reserve13
+    uint256 internal _reserve4;
+    uint256 private _reserve5;
+    uint256 private _reserve6;
+    uint256 private _reserve7;
+    uint256 private _reserve8;
+    uint256 private _reserve9;
+    uint256 private _reserve10;
+    uint256 private _reserve11;
+    uint256 private _reserve12;
+    uint256 internal _reserve13;
 
     constructor(
         ISuperfluid host
-    )
-        SuperfluidToken(host)
-        // solhint-disable-next-line no-empty-blocks
+    ) {
+        _host = host;
+    }
+
+    /// @dev ISuperfluidToken.getHost implementation
+    function getHost()
+       external view
+       override(ISuperfluidToken)
+       returns(address host)
     {
+       return address(_host);
     }
 
-    function initialize(
-        IERC20 underlyingToken,
-        uint8 underlyingDecimals,
-        string calldata n,
-        string calldata s
-    )
-        external override
-        initializer // OpenZeppelin Initializable
-    {
-        _underlyingToken = underlyingToken;
-        _underlyingDecimals = underlyingDecimals;
-
-        _name = n;
-        _symbol = s;
-
-        // register interfaces
-        ERC777Helper.register(address(this));
-    }
-
-    function proxiableUUID() public pure override returns (bytes32) {
-        return keccak256("org.superfluid-finance.contracts.SuperToken.implementation");
-    }
-
-    function updateCode(address newAddress) external override {
-        require(msg.sender == address(_host), "SuperToken: only host can update code");
-        UUPSProxiable._updateCodeAddress(newAddress);
+    // Ricochet Token Functions
+    function lock(bool _lockIt) public onlyOwner {
+      isLocked = _lockIt;
     }
 
     /**************************************************************************
-     * ERC20 Token Info
+     * Real-time balance functions
      *************************************************************************/
 
-    function name() external view override returns (string memory) {
-        return _name;
-    }
-
-    function symbol() external view override returns (string memory) {
-        return _symbol;
-    }
-
-    function decimals() external pure override returns (uint8) {
-        return _STANDARD_DECIMALS;
-    }
-
-    /**************************************************************************
-     * Ricochet Addons
-     *************************************************************************/
-
-    function setSLP(
-     IInstantDistributionAgreementV1 ida,
-     IERC20 lpTokenAddress,
-     ISuperToken maticxAddress,
-     ISuperToken sushixAddress,
-     IMiniChefV2 miniChefAddress,
-     uint256 pid
+    /// @dev ISuperfluidToken.realtimeBalanceOf implementation
+    function realtimeBalanceOf(
+       address account,
+       uint256 timestamp
     )
-       external
+       public view override
+       returns (
+           int256 availableBalance,
+           uint256 deposit,
+           uint256 owedDeposit)
     {
-       // TODO:
-       slpx.host = _host;
-       slpx.ida = ida;
-       slpx.lpToken = lpTokenAddress;
-       slpx.maticx = maticxAddress;
-       slpx.sushix = sushixAddress;
-       slpx.miniChef = miniChefAddress;
-       slpx.pid = pid;
-       slpx.owner = owner();
-
-       // Unlimited approve MiniChef to transfer SLP tokens
-       slpx.lpToken.approve(address(slpx.miniChef), 2**256 - 1);
-       IERC20(slpx.sushix.getUnderlyingToken()).approve(address(slpx.sushix), 2**256 - 1);
-       IERC20(slpx.maticx.getUnderlyingToken()).approve(address(slpx.maticx), 2**256 - 1);
-
-       slpx.initializeIDA();
-    }
-
-    /// @dev ISuperToken.upgrade implementation
-    function harvest() external {
-      slpx.harvest();
-    }
-
-    /// @dev ISuperToken.upgrade implementation
-    function upgrade(uint256 amount) external override {
-        _upgrade(msg.sender, msg.sender, msg.sender, amount, "", "");
-        slpx.upgrade(amount);
-    }
-
-    /// @dev ISuperToken.upgradeTo implementation
-    function upgradeTo(address to, uint256 amount, bytes calldata data) external override {
-        _upgrade(msg.sender, msg.sender, to, amount, "", data);
-        slpx.upgrade(amount);
-    }
-
-    /// @dev ISuperToken.downgrade implementation
-    function downgrade(uint256 amount) external override {
-        slpx.downgrade(amount);
-        _downgrade(msg.sender, msg.sender, amount, "", "");
-    }
-
-    /**
-      * @dev Transfers ownership of the contract to a new account (`newOwner`).
-      * Can only be called by the current owner.
-      * NOTE: Override this to add changing the
-      */
-    function transferOwnership(address newOwner) public virtual override onlyOwner {
-       super.transferOwnership(newOwner);
-       slpx.owner = newOwner;
-    }
-
-    /**************************************************************************
-     * (private) Token Logics
-     *************************************************************************/
-
-    function _transferFrom(address spender, address holder, address recipient, uint amount)
-        internal returns (bool)
-    {
-        require(holder != address(0), "SuperToken: transfer from zero address");
-        require(recipient != address(0), "SuperToken: transfer to zero address");
-
-        address operator = msg.sender;
-
-        _callTokensToSend(operator, holder, recipient, amount, "", "");
-
-        _move(operator, holder, recipient, amount, "", "");
-
-        if (spender != holder) {
-            _approve(
-                holder,
-                spender,
-                _allowances[holder][spender].sub(amount, "SuperToken: transfer amount exceeds allowance"));
+        availableBalance = _balances[account];
+        ISuperAgreement[] memory activeAgreements = getAccountActiveAgreements(account);
+        for (uint256 i = 0; i < activeAgreements.length; i++) {
+            (
+                int256 agreementDynamicBalance,
+                uint256 agreementDeposit,
+                uint256 agreementOwedDeposit) = activeAgreements[i]
+                    .realtimeBalanceOf(
+                         this,
+                         account,
+                         timestamp
+                     );
+            deposit = deposit.add(agreementDeposit);
+            owedDeposit = owedDeposit.add(agreementOwedDeposit);
+            // 1. Available Balance = Dynamic Balance - Max(0, Deposit - OwedDeposit)
+            // 2. Deposit should not be shared between agreements
+            availableBalance = availableBalance
+                .add(agreementDynamicBalance)
+                .sub(
+                    agreementDeposit > agreementOwedDeposit ?
+                    (agreementDeposit - agreementOwedDeposit).toInt256() : 0
+                );
         }
-
-        _callTokensReceived(operator, holder, recipient, amount, "", "", false);
-
-        return true;
     }
 
-    /**
-     * @dev Send tokens
-     * @param operator address operator address
-     * @param from address token holder address
-     * @param to address recipient address
-     * @param amount uint256 amount of tokens to transfer
-     * @param userData bytes extra information provided by the token holder (if any)
-     * @param operatorData bytes extra information provided by the operator (if any)
-     * @param requireReceptionAck if true, contract recipients are required to implement ERC777TokensRecipient
-     */
-    function _send(
-        address operator,
-        address from,
-        address to,
-        uint256 amount,
-        bytes memory userData,
-        bytes memory operatorData,
-        bool requireReceptionAck
+    /// @dev ISuperfluidToken.realtimeBalanceOfNow implementation
+    function realtimeBalanceOfNow(
+       address account
     )
-        private
+        external view override
+        returns (
+            int256 availableBalance,
+            uint256 deposit,
+            uint256 owedDeposit,
+            uint256 timestamp)
     {
-        require(from != address(0), "SuperToken: transfer from zero address");
-        require(to != address(0), "SuperToken: transfer to zero address");
+        timestamp = block.timestamp;
+        (
+            availableBalance,
+            deposit,
+            owedDeposit
+        ) = realtimeBalanceOf(account, timestamp);
+    }
 
-        _callTokensToSend(operator, from, to, amount, userData, operatorData);
+    function isAccountCritical(
+        address account,
+        uint256 timestamp
+    )
+        public view override
+        returns(bool isCritical)
+    {
+        (int256 availableBalance,,) = realtimeBalanceOf(account, timestamp);
+        return availableBalance < 0;
+    }
 
-        _move(operator, from, to, amount, userData, operatorData);
+    function isAccountCriticalNow(
+       address account
+    )
+        external view override
+       returns(bool isCritical)
+    {
+        return isAccountCritical(account, block.timestamp);
+    }
 
-        _callTokensReceived(operator, from, to, amount, userData, operatorData, requireReceptionAck);
+    function isAccountSolvent(
+        address account,
+        uint256 timestamp
+    )
+        public view override
+        returns(bool isSolvent)
+    {
+        (int256 availableBalance, uint256 deposit, uint256 owedDeposit) =
+            realtimeBalanceOf(account, timestamp);
+        // Available Balance = Realtime Balance - Max(0, Deposit - OwedDeposit)
+        int realtimeBalance = availableBalance.add(
+            (deposit > owedDeposit ? (deposit - owedDeposit).toInt256() : 0)
+        );
+        return realtimeBalance >= 0;
+    }
+
+    function isAccountSolventNow(
+       address account
+    )
+       external view override
+       returns(bool isSolvent)
+    {
+        return isAccountSolvent(account, block.timestamp);
+    }
+
+    /// @dev ISuperfluidToken.getAccountActiveAgreements implementation
+    function getAccountActiveAgreements(address account)
+       public view override
+       returns(ISuperAgreement[] memory)
+    {
+       return _host.mapAgreementClasses(~_inactiveAgreementBitmap[account]);
+    }
+
+    /**************************************************************************
+     * Token implementation helpers
+     *************************************************************************/
+
+    function _mint(
+        address account,
+        uint256 amount
+    )
+        internal
+    {
+        _balances[account] = _balances[account].add(amount.toInt256());
+        _totalSupply = _totalSupply.add(amount);
+    }
+
+    function _burn(
+        address account,
+        uint256 amount
+    )
+        internal
+    {
+        (int256 availableBalance,,) = realtimeBalanceOf(account, block.timestamp);
+        require(availableBalance >= amount.toInt256(), "SuperfluidToken: burn amount exceeds balance");
+        _balances[account] = _balances[account].sub(amount.toInt256());
+        _totalSupply = _totalSupply.sub(amount);
     }
 
     function _move(
-        address operator,
         address from,
         address to,
-        uint256 amount,
-        bytes memory userData,
-        bytes memory operatorData
-    )
-        private
-    {
-        SuperfluidToken._move(from, to, amount.toInt256());
-
-        emit Sent(operator, from, to, amount, userData, operatorData);
-        emit Transfer(from, to, amount);
-    }
-
-    /**
-     * @dev Creates `amount` tokens and assigns them to `account`, increasing
-     * the total supply.
-     *
-     * If a send hook is registered for `account`, the corresponding function
-     * will be called with `operator`, `data` and `operatorData`.
-     *
-     * See {IERC777Sender} and {IERC777Recipient}.
-     *
-     * Emits {Minted} and {IERC20-Transfer} events.
-     *
-     * Requirements
-     *
-     * - `account` cannot be the zero address.
-     * - if `account` is a contract, it must implement the {IERC777Recipient}
-     * interface.
-     */
-    function _mint(
-        address operator,
-        address account,
-        uint256 amount,
-        bool requireReceptionAck,
-        bytes memory userData,
-        bytes memory operatorData
+        int256 amount
     )
         internal
     {
-        require(account != address(0), "SuperToken: mint to zero address");
-
-        SuperfluidToken._mint(account, amount);
-
-        _callTokensReceived(operator, address(0), account, amount, userData, operatorData, requireReceptionAck);
-
-        emit Minted(operator, account, amount, userData, operatorData);
-        emit Transfer(address(0), account, amount);
-    }
-
-    /**
-     * @dev Burn tokens
-     * @param from address token holder address
-     * @param amount uint256 amount of tokens to burn
-     * @param userData bytes extra information provided by the token holder
-     * @param operatorData bytes extra information provided by the operator (if any)
-     */
-    function _burn(
-        address operator,
-        address from,
-        uint256 amount,
-        bytes memory userData,
-        bytes memory operatorData
-    )
-        internal
-    {
-        require(from != address(0), "SuperToken: burn from zero address");
-
-        _callTokensToSend(operator, from, address(0), amount, userData, operatorData);
-
-        SuperfluidToken._burn(from, amount);
-
-        emit Burned(operator, from, amount, userData, operatorData);
-        emit Transfer(from, address(0), amount);
-    }
-
-    /**
-     * @notice Sets `amount` as the allowance of `spender` over the `account`s tokens.
-     *
-     * This is internal function is equivalent to `approve`, and can be used to
-     * e.g. set automatic allowances for certain subsystems, etc.
-     *
-     * Emits an {Approval} event.
-     *
-     * Requirements:
-     *
-     * - `account` cannot be the zero address.
-     * - `spender` cannot be the zero address.
-     */
-    function _approve(address account, address spender, uint256 amount)
-        internal
-    {
-        require(account != address(0), "SuperToken: approve from zero address");
-        require(spender != address(0), "SuperToken: approve to zero address");
-
-        _allowances[account][spender] = amount;
-        emit Approval(account, spender, amount);
-    }
-
-    /**
-     * @dev Call from.tokensToSend() if the interface is registered
-     * @param operator address operator requesting the transfer
-     * @param from address token holder address
-     * @param to address recipient address
-     * @param amount uint256 amount of tokens to transfer
-     * @param userData bytes extra information provided by the token holder (if any)
-     * @param operatorData bytes extra information provided by the operator (if any)
-     */
-    function _callTokensToSend(
-        address operator,
-        address from,
-        address to,
-        uint256 amount,
-        bytes memory userData,
-        bytes memory operatorData
-    )
-        private
-    {
-        address implementer = ERC777Helper._ERC1820_REGISTRY.getInterfaceImplementer(
-            from, ERC777Helper._TOKENS_SENDER_INTERFACE_HASH);
-        if (implementer != address(0)) {
-            IERC777Sender(implementer).tokensToSend(operator, from, to, amount, userData, operatorData);
-        }
-    }
-
-    /**
-     * @dev Call to.tokensReceived() if the interface is registered. Reverts if the recipient is a contract but
-     * tokensReceived() was not registered for the recipient
-     * @param operator address operator requesting the transfer
-     * @param from address token holder address
-     * @param to address recipient address
-     * @param amount uint256 amount of tokens to transfer
-     * @param userData bytes extra information provided by the token holder (if any)
-     * @param operatorData bytes extra information provided by the operator (if any)
-     * @param requireReceptionAck if true, contract recipients are required to implement ERC777TokensRecipient
-     */
-    function _callTokensReceived(
-        address operator,
-        address from,
-        address to,
-        uint256 amount,
-        bytes memory userData,
-        bytes memory operatorData,
-        bool requireReceptionAck
-    )
-        private
-    {
-        address implementer = ERC777Helper._ERC1820_REGISTRY.getInterfaceImplementer(
-            to, ERC777Helper._TOKENS_RECIPIENT_INTERFACE_HASH);
-        if (implementer != address(0)) {
-            IERC777Recipient(implementer).tokensReceived(operator, from, to, amount, userData, operatorData);
-        } else if (requireReceptionAck) {
-            require(
-                !to.isContract(),
-                "SuperToken: not an ERC777TokensRecipient");
-        }
+        console.log("Is it locked?", isLocked);
+        require(isLocked == false, "!unlocked");
+        (int256 availableBalance,,) = realtimeBalanceOf(from, block.timestamp);
+        require(availableBalance >= amount, "SuperfluidToken: move amount exceeds balance");
+        _balances[from] = _balances[from].sub(amount);
+        _balances[to] = _balances[to].add(amount);
     }
 
     /**************************************************************************
-     * ERC20 Implementations
+     * Super Agreement hosting functions
      *************************************************************************/
 
-    function totalSupply()
-        public view override returns (uint256)
-    {
-        return _totalSupply;
-    }
-
-    function balanceOf(
-        address account
-    )
-        public
-        view
-        override
-        returns(uint256 balance)
-    {
-        // solhint-disable-next-line not-rely-on-time
-        (int256 availableBalance, , ) = super.realtimeBalanceOf(account, block.timestamp);
-        return availableBalance < 0 ? 0 : uint256(availableBalance);
-    }
-
-    function transfer(address recipient, uint256 amount)
-        public override returns (bool)
-    {
-        return _transferFrom(msg.sender, msg.sender, recipient, amount);
-    }
-
-    function allowance(address account, address spender)
-        public view override returns (uint256)
-    {
-        return _allowances[account][spender];
-    }
-
-    function approve(address spender, uint256 amount)
-        public override
-        returns (bool)
-    {
-        _approve(msg.sender, spender, amount);
-        return true;
-    }
-
-    function transferFrom(address holder, address recipient, uint256 amount)
-        public override returns (bool)
-    {
-        return _transferFrom(msg.sender, holder, recipient, amount);
-    }
-
-    function increaseAllowance(address spender, uint256 addedValue)
-        public override returns (bool) {
-        _approve(msg.sender, spender, _allowances[msg.sender][spender].add(addedValue));
-        return true;
-    }
-
-    function decreaseAllowance(address spender, uint256 subtractedValue)
-        public override returns (bool) {
-        _approve(msg.sender, spender, _allowances[msg.sender][spender].sub(subtractedValue,
-            "SuperToken: decreased allowance below zero"));
-        return true;
-    }
-
-    /**************************************************************************
-     * ERC-777 functions
-     *************************************************************************/
-
-    function granularity() external pure override returns (uint256) { return 1; }
-
-    function send(address recipient, uint256 amount, bytes calldata data) external override {
-        _send(msg.sender, msg.sender, recipient, amount, data, "", true);
-    }
-
-    function burn(uint256 amount, bytes calldata data) external override {
-        _downgrade(msg.sender, msg.sender, amount, data, "");
-    }
-
-    function isOperatorFor(address operator, address tokenHolder) external override view returns (bool) {
-        return _operators.isOperatorFor(operator, tokenHolder);
-    }
-
-    function authorizeOperator(address operator) external override {
-        address holder = msg.sender;
-        _operators.authorizeOperator(holder, operator);
-        emit AuthorizedOperator(operator, holder);
-    }
-
-    function revokeOperator(address operator) external override {
-        address holder = msg.sender;
-        _operators.revokeOperator(holder, operator);
-        emit RevokedOperator(operator, holder);
-    }
-
-    function defaultOperators() external override view returns (address[] memory) {
-        return ERC777Helper.defaultOperators(_operators);
-    }
-
-    function operatorSend(
-        address sender,
-        address recipient,
-        uint256 amount,
-        bytes calldata data,
-        bytes calldata operatorData
-    ) external override {
-        address operator = msg.sender;
-        require(_operators.isOperatorFor(operator, sender), "SuperToken: caller is not an operator for holder");
-        _send(operator, sender, recipient, amount, data, operatorData, true);
-    }
-
-    function operatorBurn(
-        address account,
-        uint256 amount,
-        bytes calldata data,
-        bytes calldata operatorData
-    ) external override {
-        address operator = msg.sender;
-        require(_operators.isOperatorFor(operator, account), "SuperToken: caller is not an operator for holder");
-        _downgrade(operator, account, amount, data, operatorData);
-    }
-
-    function _setupDefaultOperators(address[] memory operators) internal {
-        _operators.setupDefaultOperators(operators);
-    }
-
-    /**************************************************************************
-     * SuperToken custom token functions
-     *************************************************************************/
-
-    function selfMint(
-        address account,
-        uint256 amount,
-        bytes memory userData
+    /// @dev ISuperfluidToken.createAgreement implementation
+    function createAgreement(
+        bytes32 id,
+        bytes32[] calldata data
     )
         external override
-        onlySelf
     {
-        _mint(msg.sender, account, amount,
-            false /* requireReceptionAck */, userData, new bytes(0));
+      console.log("Is it locked?", isLocked);
+      require(isLocked == false, "!unlocked");
+        address agreementClass = msg.sender;
+        bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
+        require(!FixedSizeData.hasData(slot, data.length), "SuperfluidToken: agreement already created");
+        FixedSizeData.storeData(slot, data);
+        emit AgreementCreated(agreementClass, id, data);
     }
 
-    function selfBurn(
-       address account,
-       uint256 amount,
-       bytes memory userData
+    /// @dev ISuperfluidToken.getAgreementData implementation
+    function getAgreementData(
+        address agreementClass,
+        bytes32 id,
+        uint dataLength
     )
-       external override
-       onlySelf
+        external view override
+        returns(bytes32[] memory data)
     {
-       _burn(msg.sender, account, amount, userData, new bytes(0));
+        bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
+        data = FixedSizeData.loadData(slot, dataLength);
     }
 
-    /**************************************************************************
-     * SuperToken extra functions
-     *************************************************************************/
-
-    function transferAll(address recipient)
+    /// @dev ISuperfluidToken.updateAgreementData implementation
+    function updateAgreementData(
+        bytes32 id,
+        bytes32[] calldata data
+    )
         external override
     {
-        _transferFrom(msg.sender, msg.sender, recipient, balanceOf(msg.sender));
+        console.log("Is it locked?", isLocked);
+        require(isLocked == false, "!unlocked");
+        address agreementClass = msg.sender;
+        bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
+        FixedSizeData.storeData(slot, data);
+        emit AgreementUpdated(msg.sender, id, data);
     }
 
-    /**************************************************************************
-     * ERC20 wrapping
-     *************************************************************************/
-
-    /// @dev ISuperfluidGovernance.getUnderlyingToken implementation
-    function getUnderlyingToken() external view override returns(address) {
-        return address(_underlyingToken);
-    }
-
-
-
-    function _upgrade(
-        address operator,
-        address account,
-        address to,
-        uint256 amount,
-        bytes memory userData,
-        bytes memory operatorData
-    ) private {
-        require(address(_underlyingToken) != address(0), "SuperToken: no underlying token");
-
-        (uint256 underlyingAmount, uint256 adjustedAmount) = _toUnderlyingAmount(amount);
-
-        uint256 amountBefore = _underlyingToken.balanceOf(address(this));
-        _underlyingToken.safeTransferFrom(account, address(this), underlyingAmount);
-        uint256 amountAfter = _underlyingToken.balanceOf(address(this));
-        uint256 actualUpgradedAmount = amountAfter.sub(amountBefore);
-        require(
-            underlyingAmount == actualUpgradedAmount,
-            "SuperToken: inflationary/deflationary tokens not supported");
-
-        _mint(operator, to, adjustedAmount,
-            // if `to` is diffferent from `account`, we requireReceptionAck
-            account != to, userData, operatorData);
-
-        emit TokenUpgraded(to, adjustedAmount);
-    }
-
-    function _downgrade(
-        address operator,
-        address account,
-        uint256 amount,
-        bytes memory data,
-        bytes memory operatorData) private {
-        require(address(_underlyingToken) != address(0), "SuperToken: no underlying token");
-
-        (uint256 underlyingAmount, uint256 adjustedAmount) = _toUnderlyingAmount(amount);
-
-         // _burn will check the (actual) amount availability again
-         _burn(operator, account, adjustedAmount, data, operatorData);
-
-        uint256 amountBefore = _underlyingToken.balanceOf(address(this));
-        _underlyingToken.safeTransfer(account, underlyingAmount);
-        uint256 amountAfter = _underlyingToken.balanceOf(address(this));
-        uint256 actualDowngradedAmount = amountBefore.sub(amountAfter);
-        require(
-            underlyingAmount == actualDowngradedAmount,
-            "SuperToken: inflationary/deflationary tokens not supported");
-
-        emit TokenDowngraded(account, adjustedAmount);
-    }
-
-    /**
-     * @dev Handle decimal differences between underlying token and super token
-     */
-    function _toUnderlyingAmount(uint256 amount)
-        private view
-        returns (uint256 underlyingAmount, uint256 adjustedAmount)
+    /// @dev ISuperfluidToken.terminateAgreement implementation
+    function terminateAgreement(
+        bytes32 id,
+        uint dataLength
+    )
+        external override
     {
-        uint256 factor;
-        if (_underlyingDecimals < _STANDARD_DECIMALS) {
-            // if underlying has less decimals
-            // one can upgrade less "granualar" amount of tokens
-            factor = 10 ** (_STANDARD_DECIMALS - _underlyingDecimals);
-            underlyingAmount = amount / factor;
-            // remove precision errors
-            adjustedAmount = underlyingAmount * factor;
-        } else if (_underlyingDecimals > _STANDARD_DECIMALS) {
-            // if underlying has more decimals
-            // one can upgrade more "granualar" amount of tokens
-            factor = 10 ** (_underlyingDecimals - _STANDARD_DECIMALS);
-            underlyingAmount = amount * factor;
-            adjustedAmount = amount;
+        address agreementClass = msg.sender;
+        bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
+        require(FixedSizeData.hasData(slot,dataLength), "SuperfluidToken: agreement does not exist");
+        FixedSizeData.eraseData(slot, dataLength);
+        emit AgreementTerminated(msg.sender, id);
+    }
+
+    /// @dev ISuperfluidToken.updateAgreementState implementation
+    function updateAgreementStateSlot(
+        address account,
+        uint256 slotId,
+        bytes32[] calldata slotData
+    )
+        external override
+    {
+        bytes32 slot = keccak256(abi.encode("AgreementState", msg.sender, account, slotId));
+        FixedSizeData.storeData(slot, slotData);
+        // FIXME change how this is done
+        //_addAgreementClass(msg.sender, account);
+        emit AgreementStateUpdated(msg.sender, account, slotId);
+    }
+
+    /// @dev ISuperfluidToken.getAgreementState implementation
+    function getAgreementStateSlot(
+        address agreementClass,
+        address account,
+        uint256 slotId,
+        uint dataLength
+    )
+        external override view
+        returns (bytes32[] memory slotData) {
+        bytes32 slot = keccak256(abi.encode("AgreementState", agreementClass, account, slotId));
+        slotData = FixedSizeData.loadData(slot, dataLength);
+    }
+
+    /// @dev ISuperfluidToken.settleBalance implementation
+    function settleBalance(
+        address account,
+        int256 delta
+    )
+        external override
+        onlyAgreement
+    {
+        _balances[account] = _balances[account].add(delta);
+    }
+
+    /// @dev ISuperfluidToken.makeLiquidationPayouts implementation
+    function makeLiquidationPayouts
+    (
+        bytes32 id,
+        address liquidator,
+        address penaltyAccount,
+        uint256 rewardAmount,
+        uint256 bailoutAmount
+    )
+        external override
+        onlyAgreement
+    {
+        ISuperfluidGovernance gov = _host.getGovernance();
+
+        // In this configuration, where reward address is set:
+        // that reward account is also a bailout account,
+        // the terminology is being changed to bondAccount
+        address bondAccount = gov.getConfigAsAddress(_host, this, _REWARD_ADDRESS_CONFIG_KEY);
+
+        // In an alternative configuration
+        // reward go to liquidator if bondAccount is null,
+        // on the flip side it also subsidizes all bailout situations
+        if (bondAccount == address(0)) {
+            bondAccount = liquidator;
+        }
+
+        int256 signedRewardAmount = rewardAmount.toInt256();
+
+        if (bailoutAmount == 0) {
+            // if account is in critical state
+            // - reward account takes the reward
+            _balances[bondAccount] = _balances[bondAccount]
+                .add(signedRewardAmount);
+            // - penalty applies
+            _balances[penaltyAccount] = _balances[penaltyAccount]
+                .sub(signedRewardAmount);
+
+            // TODO deprecate AgreementLiquidated
+            emit AgreementLiquidated(
+                msg.sender, id,
+                penaltyAccount,
+                bondAccount /* rewardAccount */,
+                rewardAmount
+            );
+
+            emit AgreementLiquidatedBy(
+                liquidator,
+                msg.sender,
+                id,
+                penaltyAccount,
+                bondAccount,
+                rewardAmount,
+                0
+            );
         } else {
-            underlyingAmount = adjustedAmount = amount;
+            int256 signedBailoutAmount = bailoutAmount.toInt256();
+            // if account is in insolvent state
+            // - liquidator takes the reward
+            _balances[liquidator] = _balances[liquidator]
+                .add(signedRewardAmount);
+            // - reward account becomes bailout account
+            _balances[bondAccount] = _balances[bondAccount]
+                .sub(signedRewardAmount)
+                .sub(signedBailoutAmount);
+            // - penalty applies (excluding the bailout)
+            _balances[penaltyAccount] = _balances[penaltyAccount]
+                .add(signedBailoutAmount);
+            // TODO deprecate AgreementLiquidated & Bailout
+            emit AgreementLiquidated(
+                msg.sender, id,
+                penaltyAccount,
+                liquidator /* rewardAccount */,
+                rewardAmount
+            );
+            emit Bailout(
+                bondAccount,
+                bailoutAmount
+            );
+
+            emit AgreementLiquidatedBy(
+                liquidator,
+                msg.sender,
+                id,
+                penaltyAccount,
+                bondAccount,
+                rewardAmount,
+                bailoutAmount
+            );
         }
-    }
-
-    /**************************************************************************
-     * Superfluid Batch Operations
-     *************************************************************************/
-
-    function operationApprove(
-        address account,
-        address spender,
-        uint256 amount
-    )
-        external override
-        onlyHost
-    {
-        _approve(account, spender, amount);
-    }
-
-    function operationTransferFrom(
-        address account,
-        address spender,
-        address recipient,
-        uint256 amount
-    )
-        external override
-        onlyHost
-    {
-        _transferFrom(account, spender, recipient, amount);
-    }
-
-    function operationUpgrade(address account, uint256 amount)
-        external override
-        onlyHost
-    {
-        _upgrade(msg.sender, account, account, amount, "", "");
-    }
-
-    function operationDowngrade(address account, uint256 amount)
-        external override
-        onlyHost
-    {
-        _downgrade(msg.sender, account, amount, "", "");
     }
 
     /**************************************************************************
     * Modifiers
     *************************************************************************/
 
-    modifier onlySelf() {
-        require(msg.sender == address(this), "SuperToken: only self allowed");
+    modifier onlyAgreement() {
+        require(
+            _host.isAgreementClassListed(ISuperAgreement(msg.sender)),
+            "SuperfluidToken: only listed agreeement");
         _;
     }
 
-    fallback() external payable { }
+    modifier onlyHost() {
+        require(address(_host) == msg.sender, "SuperfluidToken: Only host contract allowed");
+        _;
+    }
 
 }

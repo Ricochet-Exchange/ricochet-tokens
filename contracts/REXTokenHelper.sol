@@ -5,7 +5,7 @@ import "hardhat/console.sol";
 import "./sushiswap/IMiniChefV2.sol";
 import "./matic/IWMATIC.sol";
 import "./superfluid/IMATICx.sol";
-import "./SLPxStorage.sol";
+import "./REXTokenStorage.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
 import {
@@ -18,9 +18,9 @@ import {
 
 
 
-library SLPxHelper {
+library REXTokenHelper {
 
-    function initializeIDA(SLPxStorage.SLPx storage self) public  {
+    function initializeIDA(REXTokenStorage.SLPx storage self) public  {
       // Set up the IDA for sending tokens back
       _createIndex(self, 0, self.sushix);
       _createIndex(self, 1, self.maticx);
@@ -33,7 +33,7 @@ library SLPxHelper {
 
     }
 
-    function upgrade(SLPxStorage.SLPx storage self, uint256 amount) public  {
+    function upgrade(REXTokenStorage.SLPx storage self, uint256 amount) public  {
       // Havest and distribute SUSHI rewards if there's any pending
       if (self.miniChef.pendingSushi(self.pid, address(this)) > 0) {
         harvest(self);
@@ -53,7 +53,7 @@ library SLPxHelper {
       _updateSubscription(self, 1, self.owner, totalUnitsApproved, self.maticx);
     }
 
-    function downgrade(SLPxStorage.SLPx storage self, uint256 amount) public  {
+    function downgrade(REXTokenStorage.SLPx storage self, uint256 amount) public  {
       self.miniChef.withdraw(self.pid, amount, address(this));
       harvest(self);
 
@@ -91,11 +91,11 @@ library SLPxHelper {
 
     }
 
-    function distribute(SLPxStorage.SLPx storage self, uint32 index, ISuperToken token) public {
+    function distribute(REXTokenStorage.SLPx storage self, uint32 index, ISuperToken token) public {
       _idaDistribute(self, index, uint128(token.balanceOf(address(this))), token);
     }
 
-    function harvest(SLPxStorage.SLPx storage self) public {
+    function harvest(REXTokenStorage.SLPx storage self) public {
       self.miniChef.harvest(self.pid, address(this));
 
       // Distribute rewards IFF there are rewards to distribute
@@ -118,7 +118,7 @@ library SLPxHelper {
       }
     }
 
-    function _createIndex(SLPxStorage.SLPx storage self, uint256 index, ISuperToken distToken) internal {
+    function _createIndex(REXTokenStorage.SLPx storage self, uint256 index, ISuperToken distToken) internal {
       self.host.callAgreement(
          self.ida,
          abi.encodeWithSelector(
@@ -132,7 +132,7 @@ library SLPxHelper {
     }
 
     function _updateSubscription(
-        SLPxStorage.SLPx storage self,
+        REXTokenStorage.SLPx storage self,
         uint256 index,
         address subscriber,
         uint128 shares,
@@ -152,7 +152,7 @@ library SLPxHelper {
      );
     }
 
-    function _idaDistribute(SLPxStorage.SLPx storage self, uint32 index, uint128 distAmount, ISuperToken distToken) internal {
+    function _idaDistribute(REXTokenStorage.SLPx storage self, uint32 index, uint128 distAmount, ISuperToken distToken) internal {
       self.host.callAgreement(
         self.ida,
         abi.encodeWithSelector(
@@ -166,7 +166,7 @@ library SLPxHelper {
       );
     }
 
-    function _getIDAShares(SLPxStorage.SLPx storage self, uint32 index, ISuperToken idaToken, address streamer) internal view returns (bool exist,
+    function _getIDAShares(REXTokenStorage.SLPx storage self, uint32 index, ISuperToken idaToken, address streamer) internal view returns (bool exist,
                   bool approved,
                   uint128 units,
                   uint256 pendingDistribution) {
@@ -178,7 +178,7 @@ library SLPxHelper {
                                                                     streamer);
     }
 
-    function _getIDAShares(SLPxStorage.SLPx storage self, uint32 index, ISuperToken idaToken) internal view returns (bool exist,
+    function _getIDAShares(REXTokenStorage.SLPx storage self, uint32 index, ISuperToken idaToken) internal view returns (bool exist,
             uint128 indexValue,
             uint128 totalUnitsApproved,
             uint128 totalUnitsPending) {

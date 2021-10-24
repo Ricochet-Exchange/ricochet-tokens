@@ -22,9 +22,9 @@ const pid = "1";
 const sfHost = "0x3E14dC1b13c488a8d5D310918780c983bD5982E7";
 const sfIDA = "0xB0aABBA4B2783A72C52956CDEF62d438ecA2d7a1";
 
-describe("SLPx", function () {
+describe("RexToken", function () {
 
-  let slpx;
+  let rexToken;
   let slp;
   let alice;
   let owner;
@@ -49,27 +49,27 @@ describe("SLPx", function () {
     owner = await ethers.getSigner(ownerAddress)
 
 
-    // Delpoy SLPx
-    const SLPxHelper = await ethers.getContractFactory("SLPxHelper");
-    let slpxHelper = await SLPxHelper.deploy();
+    // Delpoy RexToken
+    const REXTokenHelper = await ethers.getContractFactory("REXTokenHelper");
+    let rexTokenHelper = await REXTokenHelper.deploy();
 
-    const SLPx = await ethers.getContractFactory("RicochetToken",{
+    const RexToken = await ethers.getContractFactory("REXToken",{
       signer: owner,
       libraries: {
-              SLPxHelper: slpxHelper.address,
+              REXTokenHelper: rexTokenHelper.address,
       },
     });
-    slpx = await SLPx.deploy(sfHost);
-    await slpx.deployed();
+    rexToken = await RexToken.deploy(sfHost);
+    await rexToken.deployed();
 
     // Initialize Ricochet SLP
-    await slpx.initialize(
+    await rexToken.initialize(
             lpTokenAddress,
             18,
             "Ricochet SLP (USDC/ETH)",
-            "SLPr");
+            "rexSLP");
 
-    await slpx.setSLP(
+    await rexToken.setSLP(
         sfIDA,
         lpTokenAddress,
         maticxAddress,
@@ -111,7 +111,7 @@ describe("SLPx", function () {
     )(
         sf.agreements.ida.address,
         sf.agreements.ida.contract.methods
-            .approveSubscription(sushix.address, slpx.address, 0, "0x")
+            .approveSubscription(sushix.address, rexToken.address, 0, "0x")
             .encodeABI(),
         "0x", // user data
         {
@@ -125,7 +125,7 @@ describe("SLPx", function () {
     )(
         sf.agreements.ida.address,
         sf.agreements.ida.contract.methods
-            .approveSubscription(sushix.address, slpx.address, 0, "0x")
+            .approveSubscription(sushix.address, rexToken.address, 0, "0x")
             .encodeABI(),
         "0x", // user data
         {
@@ -144,64 +144,65 @@ describe("SLPx", function () {
 
     // Alice approves her balance of SLP tokens to be upgraded and upgrades
     let aliceSLPBalance = (await slp.balanceOf(alice.address)).toString()
-    await slp.approve(slpx.address, aliceSLPBalance);
-    slpx = slpx.connect(alice)
-    let tx = await slpx.upgrade(aliceSLPBalance);
+    await slp.approve(rexToken.address, aliceSLPBalance);
+    rexToken = rexToken.connect(alice)
+    let tx = await rexToken.upgrade(aliceSLPBalance);
 
     // After upgrade expect...
-    // Alice has the right amount of SLPx
-    expect((await slpx.balanceOf(alice.address)).toString()).to.equal(aliceSLPBalance);
-    // SLPx has SLP on deposit at Mini Chef
-    let userInfo = await minichef.userInfo(pid, slpx.address);
+    // Alice has the right amount of RexToken
+    expect((await rexToken.balanceOf(alice.address)).toString()).to.equal(aliceSLPBalance);
+    // RexToken has SLP on deposit at Mini Chef
+    let userInfo = await minichef.userInfo(pid, rexToken.address);
     expect(userInfo[0].toString()).to.equal(aliceSLPBalance);
 
   });
 
   it("harvests SUSHI rewards", async function () {
 
-    // SLPx has tokens on deposit with MiniChef, so just wait then call harvest
+    // RexToken has tokens on deposit with MiniChef, so just wait then call harvest
     await traveler.advanceTimeAndBlock(60); // Move forward 1 minute
 
-    await slpx.harvest();
+    await rexToken.harvest();
 
-    let userInfo = await minichef.userInfo(pid, slpx.address);
-    let pendingSushi = (await minichef.pendingSushi(pid, slpx.address)).toString()
+    let userInfo = await minichef.userInfo(pid, rexToken.address);
+    let pendingSushi = (await minichef.pendingSushi(pid, rexToken.address)).toString()
 
     // After harvest expect...
-    // SLPx has some SUSHIx and MATICx
-    // console.log("SUSHI", (await minichef.userInfo(pid, slpx.address))[0].toString())
+    // RexToken has some SUSHIx and MATICx
+    // console.log("SUSHI", (await minichef.userInfo(pid, rexToken.address))[0].toString())
 
-    expect((await sushix.balanceOf(slpx.address)).toNumber()).to.be.above(0);
+    expect((await sushix.balanceOf(rexToken.address)).toNumber()).to.be.above(0);
     // TODO: Are matic rewards even happening?
-    expect((await maticx.balanceOf(slpx.address)).toNumber()).to.be.above(0);
+    expect((await maticx.balanceOf(rexToken.address)).toNumber()).to.be.above(0);
 
   });
 
-  it("downgrades SLPx tokens", async function () {
+  it("downgrades RexToken tokens", async function () {
 
-    // SLPx has tokens on deposit with MiniChef, so just wait then call harvest
+    // RexToken has tokens on deposit with MiniChef, so just wait then call harvest
     await traveler.advanceTimeAndBlock(120); // Move forward 1 minute
 
-    // Alice has SLPx from the previous test
-    let aliceSLPxBalance = (await slpx.balanceOf(alice.address)).toString()
-    let tx = await slpx.downgrade(aliceSLPxBalance);
+    // Alice has RexToken from the previous test
+    let aliceRexTokenBalance = (await rexToken.balanceOf(alice.address)).toString()
+    let tx = await rexToken.downgrade(aliceRexTokenBalance);
 
     // After downgrade expect...
     // Alice has her SLP tokens back
-    expect((await slp.balanceOf(alice.address)).toString()).to.equal(aliceSLPxBalance);
-    // SLPx has SLP on deposit at Mini Chef
-    let userInfo = await minichef.userInfo(pid, slpx.address);
+    expect((await slp.balanceOf(alice.address)).toString()).to.equal(aliceRexTokenBalance);
+    // RexToken has SLP on deposit at Mini Chef
+    let userInfo = await minichef.userInfo(pid, rexToken.address);
     expect(userInfo[0]).to.equal(0);
     // Alice gets some SUSHIx and MATICx
 
-    // Deployer gets some SUSHIx and MATICx
+    // Deployer gets some SUSHIx
     let ownerBal = (await sushix.balanceOf(owner.address)).toNumber();
     let aliceBal = (await sushix.balanceOf(alice.address)).toNumber();
     expect(ownerBal).to.be.above(0);
     expect(aliceBal).to.be.above(0);
     expect(aliceBal / (ownerBal + aliceBal)).to.equal(0.8);
 
-    // Deployer gets some SUSHIx and MATICx
+    // Deployer gets some MATICx
+    // Sushi pools run out of MATIC a lot, smh
     ownerBal = (await maticx.balanceOf(owner.address)).toNumber();
     aliceBal = (await maticx.balanceOf(alice.address)).toNumber();
     expect(ownerBal).to.be.above(0);

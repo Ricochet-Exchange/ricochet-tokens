@@ -15,7 +15,7 @@ import {
 
 
 
-library SLPxStorage {
+library REXTokenStorage {
 
   struct SLPx {
     IERC20 lpToken;
