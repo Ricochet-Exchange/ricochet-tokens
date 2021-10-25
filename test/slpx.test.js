@@ -150,17 +150,49 @@ describe("RexToken", function () {
 
   });
 
+  it("should be unlockable by owner", async function () {
+
+    // Upgrade alices SLP
+    let aliceBalance = (await slp.balanceOf(alice.address)).toString()
+    await slp.approve(rexToken.address, aliceBalance);
+    rexToken = rexToken.connect(alice)
+    let tx = await rexToken.upgrade(aliceBalance);
+
+    // Unlock allow CFA
+    rexToken = rexToken.connect(owner)
+    await rexToken.lock(false);
+    await sfAlice.flow({ flowRate: "1", recipient: owner.address });
+    await sfAlice.flow({ flowRate: "0", recipient: owner.address });
+
+    // Relock don't allow CFA
+    await rexToken.lock(true);
+    await expect(
+      sfAlice.flow({ flowRate: "20", recipient: owner.address })
+    ).to.be.revertedWith("!unlocked");
+
+    rexToken = rexToken.connect(owner)
+    await rexToken.transfer(alice.address, (await rexToken.balanceOf(owner.address)).toString())
+    let aliceRexTokenBalance = (await rexToken.balanceOf(alice.address)).toString()
+    rexToken = rexToken.connect(alice)
+    await rexToken.downgrade(aliceRexTokenBalance);
+
+  });
+
   it("upgrades SLP tokens", async function () {
 
+    // Alice might alread have SLPx
+    let aliceRexTokenBalance = (await rexToken.balanceOf(alice.address)).toString()
+    console.log("Alice rext tokens", aliceRexTokenBalance)
+
     // Alice approves her balance of SLP tokens to be upgraded and upgrades
-    let aliceSLPBalance = (await slp.balanceOf(alice.address)).toString()
+    let aliceSLPBalance = await slp.balanceOf(alice.address)
     await slp.approve(rexToken.address, aliceSLPBalance);
     rexToken = rexToken.connect(alice)
     let tx = await rexToken.upgrade(aliceSLPBalance);
 
     // After upgrade expect...
     // Alice has the right amount of RexToken
-    expect((await rexToken.balanceOf(alice.address)).toString()).to.equal(aliceSLPBalance);
+    expect((await rexToken.balanceOf(alice.address)).toString()).to.equal((aliceSLPBalance).toString());
     // RexToken has SLP on deposit at Mini Chef
     let userInfo = await minichef.userInfo(pid, rexToken.address);
     expect(userInfo[0].toString()).to.equal(aliceSLPBalance);

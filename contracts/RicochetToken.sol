@@ -244,8 +244,8 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
     )
         external override
     {
-      console.log("Is it locked?", isLocked);
-      require(isLocked == false, "!unlocked");
+        // Must be unlocked by the owner before agreements can happen
+        require(isLocked == false, "!unlocked");
         address agreementClass = msg.sender;
         bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
         require(!FixedSizeData.hasData(slot, data.length), "SuperfluidToken: agreement already created");
@@ -273,7 +273,6 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
     )
         external override
     {
-        console.log("Is it locked?", isLocked);
         require(isLocked == false, "!unlocked");
         address agreementClass = msg.sender;
         bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
