@@ -27,6 +27,7 @@ describe("RexToken", function () {
   let rexToken;
   let slp;
   let alice;
+  let sfAlice;
   let owner;
   let minichef;
   let maticx;
@@ -105,6 +106,11 @@ describe("RexToken", function () {
     });
     await sf.initialize();
 
+    sfAlice = sf.user({
+      address: alice.address,
+      token: rexToken.address,
+    });
+
     await web3tx(
         sf.host.callAgreement,
         alice.address + " approves subscription to the app " + sushix.address
@@ -136,7 +142,11 @@ describe("RexToken", function () {
 
   });
 
-  it("deployed with correct attributes", async function () {
+  it("should not allow CFA", async function () {
+
+    await expect(
+      sfAlice.flow({ flowRate: "100", recipient: owner.address })
+    ).to.be.revertedWith("!unlocked");
 
   });
 
