@@ -95,8 +95,13 @@ library SLPxHelper {
       _idaDistribute(self, index, uint128(token.balanceOf(address(this))), token);
     }
 
-    function harvest(SLPxStorage.SLPx storage self) public {
-      self.miniChef.harvest(self.pid, address(this));
+    function harvest(REXTokenStorage.SLPx storage self) public {
+
+      // Try to harvest from minichef, catch and continue iff there's no sushi
+      try self.miniChef.harvest(self.pid, address(this)) {
+      } catch Error(string memory reason) {
+        require(keccak256(bytes(reason)) == keccak256(bytes("BoringERC20: Transfer failed")), "!boringERC20Error");
+      }
 
       // Distribute rewards IFF there are rewards to distribute
       uint256 sushis = IERC20(self.sushix.getUnderlyingToken()).balanceOf(address(this));
