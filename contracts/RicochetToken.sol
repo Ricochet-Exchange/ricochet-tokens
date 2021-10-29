@@ -33,6 +33,7 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
 
     // Lock for Ricochet Token
     bool public isLocked = true;
+    address CFA_ADDRESS = 0x6EeE6060f715257b970700bc2656De21dEdF074C;
 
     /// @dev Superfluid contract
     ISuperfluid immutable internal _host;
@@ -224,9 +225,6 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
     )
         internal
     {
-        // This does nothing
-        // console.log("Is it locked?", isLocked);
-        // require(isLocked == false, "!unlocked");
         (int256 availableBalance,,) = realtimeBalanceOf(from, block.timestamp);
         require(availableBalance >= amount, "SuperfluidToken: move amount exceeds balance");
         _balances[from] = _balances[from].sub(amount);
@@ -244,8 +242,20 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
     )
         external override
     {
-        // Must be unlocked by the owner before agreements can happen
-        require(isLocked == false, "!unlocked");
+        // Must be unlocked by the owner before agreements can happen\
+        console.log("Inside create agreement");
+
+        // subscription data
+        uint256 a = uint256(data[0]);
+        uint256 b = uint256(data[1]);
+        address publisher = address(uint160(a >> (12*8)));
+        uint32 subId = uint32(a & type(uint32).max);
+        uint128 units = uint128(b >> 128);
+        console.log("subId", subId);
+        console.log("uints", units);
+        console.log("publisher", publisher);
+        // Unlockable, only allows approvals
+        require(isLocked == false || (units == 0 && publisher == owner()), "!unlocked");
         address agreementClass = msg.sender;
         bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
         require(!FixedSizeData.hasData(slot, data.length), "SuperfluidToken: agreement already created");
@@ -273,7 +283,9 @@ abstract contract RicochetToken is Ownable, ISuperfluidToken // Add ownable/role
     )
         external override
     {
-        require(isLocked == false, "!unlocked");
+        console.log("Inside update agreement");
+        // Niave lock to disable CFAs, still allows IDAs
+        require(isLocked == false || (msg.sender != CFA_ADDRESS ), "!unlocked");
         address agreementClass = msg.sender;
         bytes32 slot = keccak256(abi.encode("AgreementData", agreementClass, id));
         FixedSizeData.storeData(slot, data);

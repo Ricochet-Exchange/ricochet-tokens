@@ -143,10 +143,20 @@ describe("RexToken", function () {
   });
 
   it("should not allow CFA", async function () {
+    // Upgrade alices SLP
+    let aliceBalance = (await slp.balanceOf(alice.address)).toString()
+    await slp.approve(rexToken.address, aliceBalance);
+    rexToken = rexToken.connect(alice)
+    let tx = await rexToken.upgrade(aliceBalance, "0x");
 
     await expect(
-      sfAlice.flow({ flowRate: "100", recipient: owner.address })
+      sfAlice.flow({ flowRate: "1", recipient: owner.address })
     ).to.be.revertedWith("!unlocked");
+
+    let aliceRexTokenBalance = (await rexToken.balanceOf(alice.address)).toString()
+    rexToken = rexToken.connect(alice)
+    await rexToken.downgrade(aliceRexTokenBalance);
+
 
   });
 
@@ -156,7 +166,7 @@ describe("RexToken", function () {
     let aliceBalance = (await slp.balanceOf(alice.address)).toString()
     await slp.approve(rexToken.address, aliceBalance);
     rexToken = rexToken.connect(alice)
-    let tx = await rexToken.upgrade(aliceBalance);
+    let tx = await rexToken.upgrade(aliceBalance, "0x");
 
     // Unlock allow CFA
     rexToken = rexToken.connect(owner)
@@ -252,5 +262,24 @@ describe("RexToken", function () {
     expect(aliceBal / (ownerBal + aliceBal)).to.equal(0.8);
 
   });
+
+  it("lets the owner burn from account", async function () {
+    // Alice has RexToken from the previous test
+    // Upgrade alices SLP
+    let aliceBalance = (await slp.balanceOf(alice.address)).toString()
+    await slp.approve(rexToken.address, aliceBalance);
+    rexToken = rexToken.connect(alice)
+    let tx = await rexToken.upgrade(aliceBalance);
+
+    let aliceRexTokenBalance = (await rexToken.balanceOf(alice.address)).toString()
+    expect(parseInt(aliceRexTokenBalance)).to.be.above(0);
+    rexToken = rexToken.connect(owner)
+    tx = await rexToken.downgradeFrom(alice.address, aliceRexTokenBalance);
+    let aliceSLPBalance = (await slp.balanceOf(alice.address)).toString();
+    expect(aliceSLPBalance).to.equal(aliceRexTokenBalance);
+    aliceRexTokenBalance = (await rexToken.balanceOf(alice.address)).toString()
+    expect(aliceRexTokenBalance).to.equal("0")
+  });
+
 
 });

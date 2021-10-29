@@ -1,3 +1,3 @@
 module.exports = {
-  SLPxHelper: "0x4aa6a91c1ffF4C90bb9ab2ccFE27c99230892557",
+  REXTokenHelper: "0xd34De4901527dE66471297c4A401823A967d889E",
 };

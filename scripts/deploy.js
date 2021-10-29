@@ -2,6 +2,10 @@ const hre = require("hardhat");
 
 
 async function main() {
+  const [deployer] = await ethers.getSigners();
+
+  console.log("Deploying contracts with the account:", deployer.address);
+  console.log("Account balance:", (await deployer.getBalance()).toString());
 
 
   const lpTokenAddress = "0x34965ba0ac2451A34a0471F04CCa3F990b8dea27";
@@ -12,25 +16,25 @@ async function main() {
   const sfHost = "0x3E14dC1b13c488a8d5D310918780c983bD5982E7";
   const sfIDA = "0xB0aABBA4B2783A72C52956CDEF62d438ecA2d7a1";
   // Delpoy SLPx
-  const SLPxHelper = await hre.ethers.getContractFactory("SLPxHelper");
-  let slpxHelper = await SLPxHelper.deploy();
+  const REXTokenHelper = await hre.ethers.getContractFactory("REXTokenHelper");
+  let rexTokenHelper = await REXTokenHelper.deploy();
 
-  const SLPx = await hre.ethers.getContractFactory("RicochetToken",{
+  const REXToken = await hre.ethers.getContractFactory("REXToken",{
     libraries: {
-            SLPxHelper: slpxHelper.address,
+            REXTokenHelper: rexTokenHelper.address,
     },
   });
-  slpx = await SLPx.deploy(sfHost);
-  await slpx.deployed();
+  rexToken = await REXToken.deploy(sfHost);
+  await rexToken.deployed();
 
   // Initialize Ricochet SLP
-  await slpx.initialize(
+  await rexToken.initialize(
           lpTokenAddress,
           18,
           "Ricochet SLP (USDC/ETH)",
-          "SLPr");
+          "rexSLP");
 
-  await slpx.setSLP(
+  await rexToken.setSLP(
       sfIDA,
       lpTokenAddress,
       maticxAddress,

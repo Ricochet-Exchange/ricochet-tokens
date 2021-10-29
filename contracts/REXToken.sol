@@ -6,6 +6,7 @@ import "hardhat/console.sol";
 import "./REXTokenStorage.sol";
 import "./REXTokenHelper.sol";
 import "./RicochetToken.sol";
+import "./IRicochetToken.sol";
 
 import {
     ISuperfluid,
@@ -37,7 +38,7 @@ import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 contract REXToken is
     UUPSProxiable,
     RicochetToken,
-    ISuperToken
+    IRicochetToken
 {
 
     using SafeMath for uint256;
@@ -95,6 +96,8 @@ contract REXToken is
         RicochetToken(host)
         // solhint-disable-next-line no-empty-blocks
     {
+        slpx.host = host;
+        slpx.owner = msg.sender;
     }
 
     function initialize(
@@ -155,22 +158,7 @@ contract REXToken is
     )
        external
     {
-       // TODO:
-       slpx.host = _host;
-       slpx.ida = ida;
-       slpx.lpToken = lpTokenAddress;
-       slpx.maticx = maticxAddress;
-       slpx.sushix = sushixAddress;
-       slpx.miniChef = miniChefAddress;
-       slpx.pid = pid;
-       slpx.owner = owner();
-
-       // Unlimited approve MiniChef to transfer SLP tokens
-       slpx.lpToken.approve(address(slpx.miniChef), 2**256 - 1);
-       IERC20(slpx.sushix.getUnderlyingToken()).approve(address(slpx.sushix), 2**256 - 1);
-       IERC20(slpx.maticx.getUnderlyingToken()).approve(address(slpx.maticx), 2**256 - 1);
-
-       slpx.initializeIDA();
+       slpx.setSLP(ida, lpTokenAddress, maticxAddress, sushixAddress, miniChefAddress, pid);
     }
 
     /// @dev ISuperToken.upgrade implementation
@@ -178,25 +166,43 @@ contract REXToken is
       slpx.harvest();
     }
 
-    /// @dev ISuperToken.upgrade implementation
-    function upgrade(uint256 amount) external override {
+    // /// @dev ISuperToken.upgrade implementation
+    // function upgrade(uint256 amount) external override {
+    //     _upgrade(msg.sender, msg.sender, msg.sender, amount, "", "");
+    //     slpx.upgrade(amount, new bytes(0));
+    // }
+
+    function upgrade(uint256 amount, bytes memory ctx)
+      external override returns (bytes memory newCtx) {
         _upgrade(msg.sender, msg.sender, msg.sender, amount, "", "");
-        slpx.upgrade(amount);
+        newCtx = slpx.upgrade(amount, ctx);
     }
 
-    /// @dev ISuperToken.upgradeTo implementation
-    function upgradeTo(address to, uint256 amount, bytes calldata data) external override {
-        _upgrade(msg.sender, msg.sender, to, amount, "", data);
-        slpx.upgrade(amount);
-    }
+    // /// @dev ISuperToken.upgradeTo implementation
+    // function upgradeTo(address to, uint256 amount, bytes calldata data) external override {
+    //     _upgrade(msg.sender, msg.sender, to, amount, "", data);
+    //     slpx.upgrade(amount, new bytes(0));
+    // }
 
-    /// @dev ISuperToken.downgrade implementation
-    function downgrade(uint256 amount) external override {
-        slpx.downgrade(amount);
-        _downgrade(msg.sender, msg.sender, amount, "", "");
+    // /// @dev ISuperToken.downgrade implementation
+    // function downgrade(uint256 amount) external override {
+    //     slpx.downgrade(msg.sender, amount, new bytes(0));
+    //     _downgrade(msg.sender, msg.sender, amount, "", "");
+    // }
+
+    // function downgrade(uint256 amount, bytes memory ctx)
+    //   external override returns (bytes memory newCtx) {
+    //     newCtx = slpx.downgrade(msg.sender, amount, ctx);
+    //     _downgrade(msg.sender, msg.sender, amount, "", "");
+    // }
+
+    function downgradeFrom(address account, uint256 amount) external onlyOwner {
+        slpx.downgrade(account, amount, new bytes(0));
+        _downgrade(msg.sender, account, amount, "", "");
     }
 
     /**
+      * H/T OpenZeppelin
       * @dev Transfers ownership of the contract to a new account (`newOwner`).
       * Can only be called by the current owner.
       * NOTE: Override this to add changing the
@@ -205,6 +211,7 @@ contract REXToken is
        super.transferOwnership(newOwner);
        slpx.owner = newOwner;
     }
+
 
     /**************************************************************************
      * (private) Token Logics

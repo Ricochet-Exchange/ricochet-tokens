@@ -20,7 +20,30 @@ import {
 
 library REXTokenHelper {
 
-    function initializeIDA(REXTokenStorage.SLPx storage self) public  {
+    function setSLP(
+      REXTokenStorage.SLPx storage self,
+      IInstantDistributionAgreementV1 ida,
+      IERC20 lpTokenAddress,
+      ISuperToken maticxAddress,
+      ISuperToken sushixAddress,
+      IMiniChefV2 miniChefAddress,
+      uint256 pid) public {
+              self.ida = ida;
+      self.lpToken = lpTokenAddress;
+      self.maticx = maticxAddress;
+      self.sushix = sushixAddress;
+      self.miniChef = miniChefAddress;
+      self.pid = pid;
+
+      // Unlimited approve MiniChef to transfer SLP tokens
+      self.lpToken.approve(address(self.miniChef), 2**256 - 1);
+      IERC20(self.sushix.getUnderlyingToken()).approve(address(self.sushix), 2**256 - 1);
+      IERC20(self.maticx.getUnderlyingToken()).approve(address(self.maticx), 2**256 - 1);
+
+      _initializeIDA(self);
+    }
+
+    function _initializeIDA(REXTokenStorage.SLPx storage self) internal  {
       // Set up the IDA for sending tokens back
       _createIndex(self, 0, self.sushix);
       _createIndex(self, 1, self.maticx);
@@ -33,27 +56,48 @@ library REXTokenHelper {
 
     }
 
-    function upgrade(REXTokenStorage.SLPx storage self, uint256 amount) public  {
+    function upgrade(REXTokenStorage.SLPx storage self, uint256 amount, bytes memory ctx)
+      external returns (bytes memory newCtx)  {
+
+      newCtx = ctx;
+
       // Havest and distribute SUSHI rewards if there's any pending
       if (self.miniChef.pendingSushi(self.pid, address(this)) > 0) {
         harvest(self);
       }
 
       self.miniChef.deposit(self.pid, amount, address(this));
-      _updateSubscription(self, 0, msg.sender, uint128(amount), self.sushix);
-      _updateSubscription(self, 1, msg.sender, uint128(amount), self.maticx);
-
+      console.log("To Upgrade", amount);
+      if (newCtx.length == 0) {
+        _updateSubscription(self, 0, msg.sender, uint128(amount), self.sushix);
+        _updateSubscription(self, 1, msg.sender, uint128(amount), self.maticx);
+      } else {
+        newCtx = _updateSubscriptionWithContext(self, newCtx, 0, msg.sender, uint128(amount), self.sushix);
+        newCtx = _updateSubscriptionWithContext(self, newCtx, 1, msg.sender, uint128(amount), self.maticx);
+      }
       // TODO: this is repeated code found in downgrade
       // Update the owners IDA shares
       uint128 totalUnitsApproved;
       uint128 totalUnitsPending;
       (,,totalUnitsApproved,totalUnitsPending) = _getIDAShares(self, 0, self.sushix);
+      console.log("totalUnitsApproved", totalUnitsApproved);
+      console.log("totalUnitsPending",totalUnitsPending);
       totalUnitsApproved = uint128(1000000) * (totalUnitsApproved + totalUnitsPending) / uint128(800000) - (totalUnitsApproved + totalUnitsPending);
-      _updateSubscription(self, 0, self.owner, totalUnitsApproved, self.sushix);
-      _updateSubscription(self, 1, self.owner, totalUnitsApproved, self.maticx);
+
+      if (newCtx.length == 0) {
+        _updateSubscription(self, 0, self.owner, totalUnitsApproved, self.sushix);
+        _updateSubscription(self, 1, self.owner, totalUnitsApproved, self.maticx);
+      } else {
+        newCtx = _updateSubscriptionWithContext(self, newCtx, 0, self.owner, totalUnitsApproved, self.sushix);
+        newCtx = _updateSubscriptionWithContext(self, newCtx, 1, self.owner, totalUnitsApproved, self.maticx);
+      }
     }
 
-    function downgrade(REXTokenStorage.SLPx storage self, uint256 amount) public  {
+    function downgrade(REXTokenStorage.SLPx storage self, address account, uint256 amount, bytes memory ctx)
+      public returns(bytes memory newCtx)
+    {
+      newCtx = ctx;
+
       self.miniChef.withdraw(self.pid, amount, address(this));
       harvest(self);
 
@@ -69,14 +113,24 @@ library REXTokenHelper {
       (bool exist,
        bool approved,
        uint128 units,
-       uint256 pendingDistribution) = _getIDAShares(self, 0, self.sushix, msg.sender);
-      _updateSubscription(self, 0, msg.sender, units - uint128(amount), self.sushix);
+       uint256 pendingDistribution) = _getIDAShares(self, 0, self.sushix, account);
+       console.log("uint128 amount", uint128(amount));
+       console.log("uint128 amount", units);
+      if (newCtx.length == 0) {
+        _updateSubscription(self, 0, account, units - uint128(amount), self.sushix);
+      } else {
+        newCtx = _updateSubscriptionWithContext(self, newCtx, 0, account, units - uint128(amount), self.sushix);
+      }
 
       (exist,
        approved,
        units,
-       pendingDistribution) = _getIDAShares(self, 1, self.maticx, msg.sender);
-      _updateSubscription(self, 1, msg.sender, units - uint128(amount), self.maticx);
+       pendingDistribution) = _getIDAShares(self, 1, self.maticx, account);
+       if (newCtx.length == 0) {
+         _updateSubscription(self, 0, account, units - uint128(amount), self.maticx);
+       } else {
+         newCtx = _updateSubscriptionWithContext(self, newCtx, 0, account, units - uint128(amount), self.maticx);
+       }
 
 
       // TODO: Don't repeat this in harvest and upgrade()
@@ -84,9 +138,13 @@ library REXTokenHelper {
       uint128 pendingShares;
       (,,units,pendingShares) = _getIDAShares(self, 0, self.sushix);
       units = uint128(1000000) * (units + pendingShares) / uint128(800000) - (units + pendingShares);
-      _updateSubscription(self, 0, self.owner, units, self.sushix);
-      _updateSubscription(self, 1, self.owner, units, self.maticx);
-
+      if (newCtx.length == 0) {
+        _updateSubscription(self, 0, self.owner, units, self.sushix);
+        _updateSubscription(self, 1, self.owner, units, self.maticx);
+      } else {
+        newCtx = _updateSubscriptionWithContext(self, newCtx, 0, self.owner, units, self.sushix);
+        newCtx = _updateSubscriptionWithContext(self, newCtx, 1, self.owner, units, self.maticx);
+      }
 
 
     }
@@ -155,6 +213,31 @@ library REXTokenHelper {
          ),
          new bytes(0) // user data
      );
+    }
+
+    function _updateSubscriptionWithContext(
+        REXTokenStorage.SLPx storage self,
+        bytes memory ctx,
+        uint256 index,
+        address subscriber,
+        uint128 shares,
+        ISuperToken distToken)
+        internal returns (bytes memory newCtx)  {
+
+        newCtx = ctx;
+        (newCtx, ) = self.host.callAgreementWithContext(
+          self.ida,
+          abi.encodeWithSelector(
+              self.ida.updateSubscription.selector,
+              distToken,
+              index,
+              subscriber,
+              shares / 1e9,  // Number of shares is proportional to their rate
+              new bytes(0)
+          ),
+          new bytes(0), // user data
+          newCtx
+        );
     }
 
     function _idaDistribute(REXTokenStorage.SLPx storage self, uint32 index, uint128 distAmount, ISuperToken distToken) internal {
