@@ -3,8 +3,6 @@ pragma solidity 0.7.6;
 
 import { UUPSProxiable } from "@superfluid-finance/ethereum-contracts/contracts/upgradability/UUPSProxiable.sol";
 import "hardhat/console.sol";
-import "./SLPxStorage.sol";
-import "./SLPxHelper.sol";
 
 import {
     ISuperfluid,
@@ -46,8 +44,6 @@ contract RicochetToken is
     using Address for address;
     using ERC777Helper for ERC777Helper.Operators;
     using SafeERC20 for IERC20;
-    using SLPxStorage for SLPxStorage.SLPx;
-    using SLPxHelper for SLPxStorage.SLPx;
 
     uint8 constant private _STANDARD_DECIMALS = 18;
 
@@ -73,8 +69,6 @@ contract RicochetToken is
 
     /// @dev ERC777 operators support data
     ERC777Helper.Operators internal _operators;
-
-    SLPxStorage.SLPx internal slpx;
 
     // NOTE: for future compatibility, these are reserved solidity slots
     // The sub-class of SuperToken solidity slot will start after _reserve22
@@ -141,69 +135,43 @@ contract RicochetToken is
         return _STANDARD_DECIMALS;
     }
 
-    /**************************************************************************
-     * Ricochet Addons
-     *************************************************************************/
-
-    function setSLP(
-     IInstantDistributionAgreementV1 ida,
-     IERC20 lpTokenAddress,
-     ISuperToken maticxAddress,
-     ISuperToken sushixAddress,
-     IMiniChefV2 miniChefAddress,
-     uint256 pid
-    )
-       external
-    {
-       // TODO:
-       slpx.host = _host;
-       slpx.ida = ida;
-       slpx.lpToken = lpTokenAddress;
-       slpx.maticx = maticxAddress;
-       slpx.sushix = sushixAddress;
-       slpx.miniChef = miniChefAddress;
-       slpx.pid = pid;
-       slpx.owner = owner();
-
-       // Unlimited approve MiniChef to transfer SLP tokens
-       slpx.lpToken.approve(address(slpx.miniChef), 2**256 - 1);
-       IERC20(slpx.sushix.getUnderlyingToken()).approve(address(slpx.sushix), 2**256 - 1);
-       IERC20(slpx.maticx.getUnderlyingToken()).approve(address(slpx.maticx), 2**256 - 1);
-
-       slpx.initializeIDA();
-    }
-
     /// @dev ISuperToken.upgrade implementation
-    function harvest() external {
-      slpx.harvest();
-    }
-
-    /// @dev ISuperToken.upgrade implementation
-    function upgrade(uint256 amount) external override {
+    function upgrade(uint256 amount) external onlyOwner override {
         _upgrade(msg.sender, msg.sender, msg.sender, amount, "", "");
-        slpx.upgrade(amount);
     }
 
     /// @dev ISuperToken.upgradeTo implementation
-    function upgradeTo(address to, uint256 amount, bytes calldata data) external override {
+    function upgradeTo(address to, uint256 amount, bytes calldata data) external onlyOwner override {
         _upgrade(msg.sender, msg.sender, to, amount, "", data);
-        slpx.upgrade(amount);
     }
 
     /// @dev ISuperToken.downgrade implementation
-    function downgrade(uint256 amount) external override {
-        slpx.downgrade(amount);
+    function downgrade(uint256 amount) external onlyOwner override {
         _downgrade(msg.sender, msg.sender, amount, "", "");
     }
 
-    /**
-      * @dev Transfers ownership of the contract to a new account (`newOwner`).
-      * Can only be called by the current owner.
-      * NOTE: Override this to add changing the
-      */
-    function transferOwnership(address newOwner) public virtual override onlyOwner {
-       super.transferOwnership(newOwner);
-       slpx.owner = newOwner;
+    // Ricochet Token functionality
+    function mintTo(
+        address account,
+        uint256 amount,
+        bytes memory userData
+    )
+        external
+        onlyOwner
+    {
+        _mint(msg.sender, account, amount,
+            false /* requireReceptionAck */, userData, new bytes(0));
+    }
+
+    function burnFrom(
+       address account,
+       uint256 amount,
+       bytes memory userData
+    )
+       external
+       onlyOwner
+    {
+       _burn(msg.sender, account, amount, userData, new bytes(0));
     }
 
     /**************************************************************************
