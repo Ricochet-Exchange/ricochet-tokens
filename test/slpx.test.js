@@ -116,6 +116,31 @@ describe("SLPx", function () {
     slp = slp.connect(owner);
     await slp.transfer(alice.address, aliceSLPBalance);
 
+  });
+
+  it("allows only owner to mint to", async function () {
+    slpx = slpx.connect(alice);
+    await expect(slpx.mintTo(alice.address, 1000, "0x")).to.be.revertedWith('Ownable: caller is not the owner');
+
+    slpx = slpx.connect(owner);
+    let aliceSLPxBalanceBefore = await slpx.balanceOf(alice.address)
+    await slpx.mintTo(alice.address, 1000, "0x");
+    let aliceSLPxBalanceAfter = await slpx.balanceOf(alice.address)
+    expect(aliceSLPxBalanceBefore + 1000).to.equal(aliceSLPxBalanceAfter)
+
+
+  });
+
+  it("allows only owner to burn from", async function () {
+    slpx = slpx.connect(alice);
+    await expect(slpx.burnFrom(alice.address, 1000, "0x")).to.be.revertedWith('Ownable: caller is not the owner');
+
+    slpx = slpx.connect(owner);
+    let aliceSLPxBalanceBefore = await slpx.balanceOf(alice.address)
+    await slpx.burnFrom(alice.address, 1000, "0x");
+    let aliceSLPxBalanceAfter = await slpx.balanceOf(alice.address)
+    expect(aliceSLPxBalanceBefore - 1000).to.equal(aliceSLPxBalanceAfter)
+
 
   });
 
