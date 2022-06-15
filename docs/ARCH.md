@@ -220,7 +220,7 @@ The source of this limitation is the inability to update IDA shares based on how
 # Enhancements
 Currently, REX Tokens can stand alone, they would NOT support IDA or CFA streaming but would still support upgrade/downgrade so holding them you would get the benefits of auto-farming. IDA shares on the REX token are simple to manage when you're upgrading, downgrading, or ERC20 transfering tokens, since these are individual operations by an individual account, so its as simple as calling `updateSubscription` in each of those methods.
 
-While receiving the tokens via and IDA distribution, which is the case in the USDC>>SLPx market. The REXMarket itself must be _delegated_ the streamers IDA shares in the underlying REXToken and then will get forwarded to the streamer. This adds a requirement that isn't currently implemented to work:
+While receiving the tokens via and IDA distribution, which is the case in the USDC>>SLPx market the REXMarket itself must be _delegated_ the streamers IDA shares in the underlying REXToken and then it will get forwarded to the streamer using IDA pools on the REXMarket. There must be an added requirement that isn't currently implemented for the REXToken to work as both a standalone product as well as something you can stream into:
 
 :star: If a streamer already holds REXTokens, then the existing IDA shares they have need to be transfered to the REX Market. When the streamer stops streaming, the IDA shares need to be transfered back to the holder.
 
