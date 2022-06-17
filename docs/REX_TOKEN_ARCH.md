@@ -331,7 +331,29 @@ The swap method becomes `_swapAndDeposit` and the SLP token is made using the in
 
 
 # Limitations
-The SLPx token was designed to only exist while a stream is open to a REXMarket where the token could be bought. This is due to a limitation in managing the IDA shares. Currently, the IDA shares all belong to the owner and they are forwarded from the SLPx contract to the REXMarket contract and then the REXMarket contract manages IDA pools to distribute these tokens out to the streamers. **Ricochet Auto-farming Tokens are ephemeral** they are minted when someone is streaming to the REXMarket and are burned when the stream is closed. When stream is closed, the REXToken (SLPx) gets downgraded and after the closed stream, the streamer will hold the underlying token unstaked from any rewards pools (e.g. when you stop streaming to the USDC>>SLPx pool, you are left with SLP tokens, the ERC20 LP token).
+The SLPx token was designed to only exist while a stream is open to a REXMarket where the token could be bought. This is due to a limitation in managing the IDA shares. Currently, the IDA shares all belong to the owner and they are forwarded from the SLPx contract to the REXMarket contract and then the REXMarket contract manages IDA pools to distribute these tokens out to the streamers. **Ricochet Auto-farming Tokens are ephemeral** they are minted when someone is streaming to the REXMarket and are burned when the stream is closed.
+```
+// added to agreement termination callbacks
+if (isTerminating) {
+
+  // Burn the requesters SLPx balance and return SLP tokens
+  balance = _exchange.outputToken.balanceOf(requester);
+  IRicochetToken(address(_exchange.outputToken)).burnFrom(requester, balance, new bytes(0));
+
+  // Withdraw from MiniChef to requester
+  _exchange.miniChef.withdraw(_exchange.pid, balance, requester);
+}
+```
+
+When stream is closed, the REXToken (SLPx) gets downgraded and after the closed stream, the streamer will hold the underlying token unstaked from any rewards pools (e.g. when you stop streaming to the USDC>>SLPx pool, you are left with SLP tokens, the ERC20 LP token).
+
+```
+newCtx = _exchange._updateSubscriptionWithContext(newCtx, _exchange.outputIndexId, requester, uint128(uint(int(requesterFlowRate))), _exchange.outputToken);
+newCtx = _exchange._updateSubscriptionWithContext(newCtx, _exchange.sushixIndexId, requester, uint128(uint(int(requesterFlowRate))), _exchange.sushixToken);
+newCtx = _exchange._updateSubscriptionWithContext(newCtx, _exchange.maticxIndexId, requester, uint128(uint(int(requesterFlowRate))), _exchange.maticxToken);
+newCtx = _exchange._updateSubscriptionWithContext(newCtx, _exchange.subsidyIndexId, requester, uint128(uint(int(requesterFlowRate))), _exchange.subsidyToken);
+```
+A series of subscriptions are updated to distribute the SLPx, SUSHIx, MATICx, and subsidy tokens when the flow rate of a requester changes.
 
 The source of this limitation is the inability to update IDA shares based on how much is IDA distibuted. As a streamers balance accures due to the IDA distributions, they get more and more shares in the REXToken IDA pool. But, its not possible to update the IDA shares of the underlying pool (or the complexity of doing so is to high as to make it impossible). As a user streams more and more into the SLPx REXMarket, they accumulate more and more shares in the REXToken IDA pool. As a result, the REXMarket acts as a proxy for the IDA shares.
 
