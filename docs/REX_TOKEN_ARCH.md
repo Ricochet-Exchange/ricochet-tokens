@@ -1,16 +1,37 @@
 # Ricochet Auto-Farming Tokens
 This document details modifications made to SuperTokens to enable _auto-farming_, a practice where reward tokens are automatically harvested/claimed and distributed to holders. The document describes the current state of "Ricochet Tokens" using `SLPx` as an example. The document includes an enhancement that needs to be implemented so that Ricochet Tokens can be their own standalone product as well as something that can be streamed into (e.g. USDC>>SLPx).
 
-# Background
+# Table of Contents
+1. [Background](#background)
+2. [Features](#features)
+3. [Contract Architecture](#contract-architecture)
+4. [Modifications](#modifications)
+  1. [Ownable and Lockable](#ownable-and-lockable)
+  2. [SuperToken Modifications](#superToken-modifications)
+  3. [REX Market Modifications](#rex-market-modifications)
+5. [Limitations](#limitations)
+6. [Enhancements](#enhancements)
+
+
+
+## Example
+## Example2
+## Third Example
+## [Fourth Example](http://www.fourthexample.com)
+
+## Background
 There are opprotunities to earn rewards on certain tokens. For example:
 * Sushi LP tokens can be deposited in Sushi Farms to earn MATIC and SUSHI
 * am3CRV tokens can be deposted into StakeDAO to earn SDT rewards
 Ricochet Tokens enable the holder to receive the reward tokens (e.g. SDT) automatically using Superfluid's _InstantDistributionAgreement_.
 
-# Features
+## Features
 * Ricochet Tokens allow the holder to receive the reward tokens without paying for gas to claim
 * Distributions are triggered by Ricochet's Keepers and take play periodically
 * Token holders can unwrap their token to receive the underlying token anytime
+
+## Contract Architecture
+![alt text](../images/architecture.png)
 
 # Modifications
 This section shows the modifications made to the underlying `SuperfluidToken` and `SuperToken` contracts that make REX Auto-Farming Tokens possible. These tokens are called `RicochetToken` and `REXToken` respectively.
@@ -209,6 +230,112 @@ function downgrade(REXTokenStorage.SLPx storage self, uint256 amount) public  {
   _updateSubscription(self, 1, self.owner, units, self.maticx);
 }
 ```
+
+## REX Market Modifications
+This section explains how the REX Markets are modified to support REX auto-farming tokens:
+
+### Initialize a REX Token in the constructor
+In this example, the Ricochet Token is created by passing in the `_slpAddress` for the underlying yield bearing token.
+```
+constructor(
+    address _owner,
+    address _slpAddress,
+    ISuperfluid _host,
+    IConstantFlowAgreementV1 _cfa,
+    IInstantDistributionAgreementV1 _ida,
+    string memory _registrationKey
+  ) public REXMarket(_owner, _host, _cfa, _ida, _registrationKey) {
+
+    RicochetToken _rexToken = new RicochetToken(_host);
+    _rexToken.initialize(ERC20(_slpAddress), 18, "Ricochet SLP", "rexSLP");
+    rexToken = _rexToken;
+    router = IUniswapV2Router02(sushiRouter);
+
+```
+
+###  Initilize Output Token IDA Pools
+The SLP tokens staked in Sushi Farms earns a yield in MATICx and SUSHIx. There are pools created for the three output tokens: SLPx, MATICx, SUSHIx. Streamers to the market get an allocation in each. The fee set for the MATICx and SUSHIx are set to 20% where are the SLPx token takes the standard 2% fee.
+```
+function initializeMarket(
+  ISuperToken _inputToken,
+  uint256 _rateTolerance,
+  ITellor _tellor,
+  uint256 _inputTokenRequestId
+) public override onlyOwner {
+
+  // Initialize the base REX Market contract
+  REXMarket.initializeMarket(_inputToken,_rateTolerance,_tellor,_inputTokenRequestId);
+
+  // Add output pools for outputs:
+  // - SLPx
+  addOutputPool(ISuperToken(address(rexToken)), 20000, 0, 77);
+  // - SUSHIx rewards from Sushi Farm
+  addOutputPool(sushix, 200000, 0, 78);
+  // - MATICx rewards from Sushi Farm
+  addOutputPool(maticx, 200000, 0, 6);
+}
+```
+
+### Sushi Farm Setup
+The setup to be able to deposit/withdraw from Sushi Farms is done in a seperate method:
+```
+function initializeSushiFarmMarket(
+    address _pairToken,
+    uint256 _pairTokenRequestId,   // Tellor request ID for SLP value
+    uint256 _poolId                // Sushi Farm pool ID for the _pairToken
+  ) public onlyOwner {
+
+    require(pairToken == address(0), "Already initialized");
+    poolId = _poolId;
+    pairToken = _pairToken;
+
+    OracleInfo memory newOracle = OracleInfo(_pairTokenRequestId, 0, 0);
+    market.oracles[ISuperToken(pairToken)] = newOracle;
+    updateTokenPrice(ISuperToken(pairToken));
+
+    // Approvals
+    ERC20(pairToken).safeIncreaseAllowance(address(router), 2**256 - 1);
+    ERC20(market.inputToken.getUnderlyingToken()).safeIncreaseAllowance(address(router), 2**256 - 1);
+    ERC20(rexToken.getUnderlyingToken()).safeIncreaseAllowance(address(masterChef), 2**256 - 1);
+    ERC20(rexToken.getUnderlyingToken()).safeIncreaseAllowance(address(rexToken), 2**256 - 1);
+    ERC20(sushix.getUnderlyingToken()).safeIncreaseAllowance(address(sushix), 2**256 - 1);
+    ERC20(maticx.getUnderlyingToken()).safeIncreaseAllowance(address(maticx), 2**256 - 1);
+
+  }
+  ```
+
+### Swap and Deposit Method
+The swap method becomes `_swapAndDeposit` and the SLP token is made using the input token, then deposited into SushiFarm, and then SLPx is minted.
+```
+  function _swapAndDeposit(
+    uint256 amount,  
+    uint256 deadline
+  ) public returns(uint) {
+
+    // Downgrade all the input supertokens
+    // ...
+    // Swap half of input tokens to pair tokens
+    // ...
+    // Adds liquidity for inputToken/pairToken
+    // ...
+
+    // Deposit the SLP tokens made into SushiFarms
+    ERC20(rexToken.getUnderlyingToken())
+      .approve(
+          address(masterChef),
+          rexToken.getUnderlyingToken().balanceOf(address(this))
+      );
+
+    masterChef.deposit(poolId, slpBalance, address(this));
+
+    // Mint new rexTokens (this contract is the owner of rexToken and can mint)
+    rexToken.mintTo(address(this), slpBalance, new bytes(0));
+
+    }
+
+  }
+```
+
 
 # Limitations
 The SLPx token was designed to only exist while a stream is open to a REXMarket where the token could be bought. This is due to a limitation in managing the IDA shares. Currently, the IDA shares all belong to the owner and they are forwarded from the SLPx contract to the REXMarket contract and then the REXMarket contract manages IDA pools to distribute these tokens out to the streamers. **Ricochet Auto-farming Tokens are ephemeral** they are minted when someone is streaming to the REXMarket and are burned when the stream is closed. When stream is closed, the REXToken (SLPx) gets downgraded and after the closed stream, the streamer will hold the underlying token unstaked from any rewards pools (e.g. when you stop streaming to the USDC>>SLPx pool, you are left with SLP tokens, the ERC20 LP token).
