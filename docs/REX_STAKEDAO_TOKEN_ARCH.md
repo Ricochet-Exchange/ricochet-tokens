@@ -20,11 +20,11 @@ This document details the integration between StakeDAO's strategy tokens and LP 
 
 ## Holder Interactions
 Holders just upgrade the token to begin receiving SDT instant distributions.
-[image](../images/holder.png)
+![image](../images/holder.png)
 
 ## Streamer Interactions
 Streamers that open streams to USDC/DAI>>sdam3CRVrex first have all their IDA shares from the REX token allocated to the REX Market and their existing balance is added to a separate IDA pool within the REX Market for distributing SDT tokens (not shown).
-[image](../images/streamer.png)
+![image](../images/streamer.png)
 
 ## REX Market Modifications
 
