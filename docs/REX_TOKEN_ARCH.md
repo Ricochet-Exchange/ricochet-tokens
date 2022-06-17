@@ -6,9 +6,9 @@ This document details modifications made to SuperTokens to enable _auto-farming_
 2. [Features](#features)
 3. [Contract Architecture](#contract-architecture)
 4. [Modifications](#modifications)
-  1. [Ownable and Lockable](#ownable-and-lockable)
-  2. [SuperToken Modifications](#superToken-modifications)
-  3. [REX Market Modifications](#rex-market-modifications)
+    1. [Ownable and Lockable](#ownable-and-lockable)
+    2. [SuperToken Modifications](#superToken-modifications)
+    3. [REX Market Modifications](#rex-market-modifications)
 5. [Limitations](#limitations)
 6. [Enhancements](#enhancements)
 
