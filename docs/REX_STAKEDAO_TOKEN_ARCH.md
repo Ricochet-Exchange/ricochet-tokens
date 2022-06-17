@@ -11,8 +11,8 @@ This document details the integration between StakeDAO's strategy tokens and LP 
     1. [Holder Interactions](#holder-interactions)
     2. [Streamer Interactions](#streamer-interactions)
 4. [Modifications](#modifications)
-5. [SuperToken Modifications](#superToken-modifications)
-6. [REX Market Modifications](#rex-market-modifications)
+    1. [SuperToken Modifications](#superToken-modifications)
+    2. [REX Market Modifications](#rex-market-modifications)
 
 # Features
 * Supports automatic rewards tokens distributions, auto-farming where the holder receives IDA distributions of the reward token, SDTx.
@@ -32,8 +32,6 @@ Holders just upgrade the token to begin receiving SDT instant distributions.
 ## Streamer Interactions
 Streamers that open streams to USDC/DAI>>sdam3CRVrex first have all their IDA shares from the REX token allocated to the REX Market and their existing balance is added to a separate IDA pool within the REX Market for distributing SDT tokens (not shown).
 ![image](../images/streamer.png)
-
-## REX Market Modifications
 
 # Modifications
 This section details the modifications needed to REX Token and REX Markets to make this work.
