@@ -12,13 +12,6 @@ This document details modifications made to SuperTokens to enable _auto-farming_
 5. [Limitations](#limitations)
 6. [Enhancements](#enhancements)
 
-
-
-## Example
-## Example2
-## Third Example
-## [Fourth Example](http://www.fourthexample.com)
-
 ## Background
 There are opprotunities to earn rewards on certain tokens. For example:
 * Sushi LP tokens can be deposited in Sushi Farms to earn MATIC and SUSHI
