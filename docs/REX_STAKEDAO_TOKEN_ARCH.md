@@ -1,16 +1,23 @@
 # Ricochet's Auto-Farming StakeDAO Token Series
 This document details the integration between StakeDAO's strategy tokens and LP farming with Ricochet Exchange.
 
-# Background
-
-# Series Symbols
+# Symbol
 - sdam3CRVrex
-- sdbtcCRVrex
+
+# Table of Contents
+1. [Features](#features)
+2. [Customer Use Case](#customer-use-cases)
+3. [Contract Interactions](#contract-interactions)
+    1. [Holder Interactions](#holder-interactions)
+    2. [Streamer Interactions](#streamer-interactions)
+4. [Modifications](#modifications)
+5. [SuperToken Modifications](#superToken-modifications)
+6. [REX Market Modifications](#rex-market-modifications)
 
 # Features
-* REX token series supports automatic rewards tokens distributions. Holder will receive IDA distributions of the LP reward token, SDT.
+* Supports automatic rewards tokens distributions, auto-farming where the holder receives IDA distributions of the reward token, SDTx.
 * One-way streaming support, USDC>>sdam3CRVrex
-* NOT streamable themselves, only distributed by a REX market
+* NOT streamable themselves, only distributed by a REX Market, the market is the token's owner
 
 # Customer Use Cases
 - **Holder**: Holding sdam3CRVrex means your underlying stablecoins earn Aave yields plus CRV trading fees and CRV rewards. The REX token auto-farms the SDT rewards provided by StakeDAO. Holders earn yield and receive and inbound IDA distribution of SDT tokens. Inbound SDT tokens can be redirected into REX Markets to exchange for other tokens (e.g. SDT > USDC > WBTC).
@@ -28,150 +35,108 @@ Streamers that open streams to USDC/DAI>>sdam3CRVrex first have all their IDA sh
 
 ## REX Market Modifications
 
-
-
-
 # Modifications
-This section shows the modifications made to the underlying `SuperfluidToken` and `SuperToken` contracts that make REX Auto-Farming Tokens possible. These tokens are called `RicochetToken` and `REXToken` respectively.
-
-## Ownable and Lockable
-Ricochet Tokens are Ownable. In the SLPx Ricochet Token, the owner of the token is the REXMarket where users can DCA into SLPx. Ricochet Tokens also implement a _lock_ that disables features of the token. This lock is required to address some of the limitation of the auto-farming features. The lock is toggled only by the owner:
-```
-function lock(bool _lockIt) public onlyOwner {
-isLocked = _lockIt;
-}
-```
-Creating Agreements is disabled while locked, this prevents anyone other than the owner from streaming or IDA distributing. These features are only allowed by the owner because its to difficult to update the internal rewards IDA shares if everyone is allowed to stream and IDA distribute tokens. In fact, CFA streams are not supported on these tokens, they can only be IDA distributed. Streaming these LP tokens is not a feature that's needed.
-```
-/// @dev ISuperfluidToken.createAgreement implementation
-/// @dev Lock added to prevent anyone other than the owner from CFA/IDA ops
-function createAgreement(
-    bytes32 id,
-    bytes32[] calldata data
-)
-    external override
-{
-
-    require(isLocked == false, "!unlocked"); // Must be unlocked by the owner before agreements can happen
-    // ...
-}
-```
-The `updateAgreementData` method also is locked in the same way.
+This section details the modifications needed to REX Token and REX Markets to make this work.
 
 ## SuperToken Modifications
 In addition to modifying `SuperfluidToken` there are also modifications to `SuperToken`. The `REXToken` implements the logic that manages distributing the token and depositing/withdrawing tokens from rewards pools (e.g. Sushi Farms).
 
-### Underlying Token
-The REXToken uses `REXTokenStorage` and `REXTokenHelper`, these libaries get modified for each implementation of a REXToken (e.g. `REXStakeDAOTokenHelper`, `REXSushiFarmsTokenHelper`). For example, with SLPx auto-farming token:
-```
-using REXTokenStorage for REXTokenStorage.SLPx;
-using REXTokenHelper for REXTokenStorage.SLPx;
+### Structures
 
-REXTokenStorage.SLPx internal slpx;
 ```
-In this example, `slpx` is the object that contains the logic for managing farming the rewards and the upgrading and downgrading hooks that deposit/withdraw from Sushi Farms.
+struct sdam3CRVrex {
+  ISuperfluid host;
+  IInstantDistributionAgreementV1 ida;
+  ISuperToken inputToken;
+  IStakeDAOController sdam3CRV;
+  ILendingPool lendingPool;
+  IMasterChef masterChef;
+  ISuperToken sdtx;
+  address owner;
+}
+```
+
+### Underlying Token
+The underlying token will be the `sdam3CRVrex` and will use a storage and helper library to hold the functionality needed:
+```
+contract REXStakeDAOMarket {
+    using REXStakeDAOTokenStorage for REXStakeDAOTokenStorage.sdam3CRVrex;
+    using REXStakeDAOTokenHelper for REXStakeDAOTokenStorage.sdam3CRVrex;
+
+    REXStakeDAOTokenStorage.sdam3CRVrex internal underlyingToken;
+
+    //...
+}
+```
 
 ### Underlying Token Setup
 Since there's some setup for the underlying token, and since there's usually several underlying tokens (e.g. sdam3CRV and sdamETH share the same interface) there's an initialize. For the SLPx example, where theyre are several LP tokens that are farmable (e.g. MATIC-DAI SLP, ETH-DAI SLP share the same interface):
 ```
-function setSLP(
-IInstantDistributionAgreementV1 ida,
-IERC20 lpTokenAddress,
-ISuperToken maticxAddress,
-ISuperToken sushixAddress,
-IMiniChefV2 miniChefAddress,
-uint256 pid
+function setStakeDAOToken(
+    ISuperToken inputToken,               // e.g. USDCx
+    IInstantDistributionAgreementV1 ida,
+    ICurveAavePool curvePool,             // converts USDC->sdam3CRV
+                                          // 0x445fe580ef8d70ff569ab36e80c647af338db351
+    IStakeDAOController sdamToken,        // converts am3CRV->sdam3CRV
+                                          // 0x7d60f21072b585351dfd5e8b17109458d97ec120
+    IMasterChef masterChef,               // Stake here for SDT rewards
+                                          // 0x68456b298c230415e2de7ad4897a79ee3f1a965a
 )
  external
 {
- // TODO:
- slpx.host = _host;
- slpx.ida = ida;
- slpx.lpToken = lpTokenAddress;
- slpx.maticx = maticxAddress;
- slpx.sushix = sushixAddress;
- slpx.miniChef = miniChefAddress;
- slpx.pid = pid;
- slpx.owner = owner();
- // Unlimited approve MiniChef to transfer SLP tokens
- slpx.lpToken.approve(address(slpx.miniChef), 2**256 - 1);
- IERC20(slpx.sushix.getUnderlyingToken()).approve(address(slpx.sushix), 2**256 - 1);
- IERC20(slpx.maticx.getUnderlyingToken()).approve(address(slpx.maticx), 2**256 - 1);
- slpx.initializeIDA();
+    underlyingToken.host = host;
+    underlyingToken.ida = ida;
+    underlyingToken.inputToken;
+    underlyingToken.curvePool = curvePool;
+    underlyingToken.sdamToken = sdamToken;
+    underlyingToken.masterChef = masterChef;
+    underlyingToken.sdtx = SDTX_TOKEN;
+    underlyingToken.owner = owner();
 }
 ```
-The `host` and `ida` are associated with `slpx` since the `slpx` object contains the `harvest()` method that harvests rewards from SushiFarms and distributes them to token holders. The rest of the method is just setup to be able to deposit/withdraw tokens from the farm and claim rewards.
+* Deposit Flow: inputToken --> curvePool --> sdamToken --> masterChef
 
 ### Harvest Method
-This method exists in the `REXTokenHelper` libaries and is callable on the token:
+This method exists in the `REXStakeDAOTokenHelper` libraries and is callable on the token:
 ```
 // In REXToken.sol
 
-/// @dev ISuperToken.upgrade implementation
 function harvest() external {
-slpx.harvest();
+  sdamToken.harvest();
 }
 ```
 The `harvest` method contains the logi around claiming and distributing rewards. There is also a `distribute` method that does the distribution using an IDA pool.
 ```
-// In REXTokenHelper.sol
 
-function distribute(REXTokenStorage.SLPx storage self, uint32 index, ISuperToken token) public {
+@dev IDA Distribute individual tokens (index 0 is the sdt token)
+function distribute(REXStakeDAOTokenStorage.sdam3CRVrex self, uint32 index, ISuperToken token) public {
   _idaDistribute(self, index, uint128(token.balanceOf(address(this))), token);
 }
 
-function harvest(REXTokenStorage.SLPx storage self) public {
+function harvest(REXStakeDAOTokenStorage.sdam3CRVrex self) public {
 
-  // Try to harvest from minichef, catch and continue iff there's no sushi
+  // Try to harvest from minichef, catch and continue iff there's no subsidy
   try self.miniChef.harvest(self.pid, address(this)) {
   } catch Error(string memory reason) {
     require(keccak256(bytes(reason)) == keccak256(bytes("BoringERC20: Transfer failed")), "!boringERC20Error");
   }
 
   // Distribute rewards IFF there are rewards to distribute
-  uint256 sushis = IERC20(self.sushix.getUnderlyingToken()).balanceOf(address(this));
-  uint256 matics = IERC20(self.maticx.getUnderlyingToken()).balanceOf(address(this));
-  IWMATIC(self.maticx.getUnderlyingToken()).withdraw(matics);
-  if (sushis > 0) {
-    self.sushix.upgrade(sushis);
-  }
-  if (matics > 0) {
-    IMATICx(address(self.maticx)).upgradeByETH{value: matics}();
+  uint256 sdts = IERC20(self.sdtx.getUnderlyingToken()).balanceOf(address(this));
+  if (sdts > 0) {
+    self.sdtx.upgrade(sdts);
   }
 
   // Distribute rewards IFF there are rewards to distribute
-  if (self.sushix.balanceOf(address(this)) > 0) {
-    distribute(self, 0, self.sushix);
+  if (self.sdtx.balanceOf(address(this)) > 0) {
+    distribute(self, 0, self.sdtx);
   }
-  if (self.maticx.balanceOf(address(this)) > 0) {
-    distribute(self, 1, self.maticx);
-  }
+
 }
 ```
 ### Upgrade/Downgrade Modifications
-The upgrade and downgrade method use the same logic as typical `SuperToken` and include some extra logic which is called before or after the up/downgrade:
-```
-// In REXToken.sol
 
-  /// @dev ISuperToken.upgrade implementation
-  function upgrade(uint256 amount) external override {
-      _upgrade(msg.sender, msg.sender, msg.sender, amount, "", "");
-      slpx.upgrade(amount);
-  }
-  /// @dev ISuperToken.upgradeTo implementation
-  function upgradeTo(address to, uint256 amount, bytes calldata data) external override {
-      _upgrade(msg.sender, msg.sender, to, amount, "", data);
-      slpx.upgrade(amount);
-  }
-  /// @dev ISuperToken.downgrade implementation
-  function downgrade(uint256 amount) external override {
-      slpx.downgrade(amount);
-      _downgrade(msg.sender, msg.sender, amount, "", "");
-  }
-```
-The `REXTokenHelper` `upgrade` method happens AFTER the internal `_upgrade` is called. The `downgrade` method happens BEFORE the internal `_downgrade` is called.
-
-Inside the `REXTokenHelper` the upgrade and downgrade methods manage the deposit/withdraw and claim for the underlying staked LP tokens, example for SLPx shown below:
+Inside the `REXStakeDAOTokenHelper` the upgrade and downgrade methods manage the deposit/withdraw and claim for the underlying staked LP tokens:
 ```
 function upgrade(REXTokenStorage.SLPx storage self, uint256 amount) public  {
   // Havest and distribute SUSHI rewards if there's any pending
@@ -179,70 +144,78 @@ function upgrade(REXTokenStorage.SLPx storage self, uint256 amount) public  {
     harvest(self);
   }
 
-  self.miniChef.deposit(self.pid, amount, address(this));
-  _updateSubscription(self, 0, msg.sender, uint128(amount), self.sushix);
-  _updateSubscription(self, 1, msg.sender, uint128(amount), self.maticx);
+  self.masterChef.deposit(self.pid, amount, address(this));
+  // Update the callers IDA shares
+  (bool exist,
+   bool approved,
+   uint128 units,
+   uint256 pendingDistribution) = _getIDAShares(self, 0, self.sdtx, msg.sender);
+  _updateSubscription(self, 0, msg.sender, units + uint128(amount), self.sdtx);
 
-  // TODO: this is repeated code found in downgrade
+
   // Update the owners IDA shares
   uint128 totalUnitsApproved;
   uint128 totalUnitsPending;
-  (,,totalUnitsApproved,totalUnitsPending) = _getIDAShares(self, 0, self.sushix);
+  (,,totalUnitsApproved,totalUnitsPending) = _getIDAShares(self, 0, self.sdtx);
   totalUnitsApproved = uint128(1000000) * (totalUnitsApproved + totalUnitsPending) / uint128(800000) - (totalUnitsApproved + totalUnitsPending);
-  _updateSubscription(self, 0, self.owner, totalUnitsApproved, self.sushix);
-  _updateSubscription(self, 1, self.owner, totalUnitsApproved, self.maticx);
+  _updateSubscription(self, 0, self.owner, totalUnitsApproved, self.sdtx);
 }
 
 function downgrade(REXTokenStorage.SLPx storage self, uint256 amount) public  {
-  self.miniChef.withdraw(self.pid, amount, address(this));
+  self.masterChef.withdraw(self.pid, amount, address(this));
   harvest(self);
 
   // Distribute rewards IFF there are rewards to distribute
-  if (self.sushix.balanceOf(address(this)) > 0) {
-    distribute(self, 0, self.sushix);
-  }
-  if (self.maticx.balanceOf(address(this)) > 0) {
-    distribute(self, 1, self.maticx);
+  if (self.sdtx.balanceOf(address(this)) > 0) {
+    distribute(self, 0, self.sdtx);
   }
 
   // Update the callers IDA shares
   (bool exist,
    bool approved,
    uint128 units,
-   uint256 pendingDistribution) = _getIDAShares(self, 0, self.sushix, msg.sender);
-  _updateSubscription(self, 0, msg.sender, units - uint128(amount), self.sushix);
+   uint256 pendingDistribution) = _getIDAShares(self, 0, self.sdtx, msg.sender);
+  _updateSubscription(self, 0, msg.sender, units - uint128(amount), self.sdtx);
 
-  (exist,
-   approved,
-   units,
-   pendingDistribution) = _getIDAShares(self, 1, self.maticx, msg.sender);
-  _updateSubscription(self, 1, msg.sender, units - uint128(amount), self.maticx);
-
-
-  // TODO: Don't repeat this in harvest and upgrade()
   // Update the owners IDA shares
   uint128 pendingShares;
-  (,,units,pendingShares) = _getIDAShares(self, 0, self.sushix);
+  (,,units,pendingShares) = _getIDAShares(self, 0, self.sdtx);
   units = uint128(1000000) * (units + pendingShares) / uint128(800000) - (units + pendingShares);
-  _updateSubscription(self, 0, self.owner, units, self.sushix);
-  _updateSubscription(self, 1, self.owner, units, self.maticx);
+  _updateSubscription(self, 0, self.owner, units, self.sdtx);
 }
 ```
 
-# Limitations
-The SLPx token was designed to only exist while a stream is open to a REXMarket where the token could be bought. This is due to a limitation in managing the IDA shares. Currently, the IDA shares all belong to the owner and they are forwarded from the SLPx contract to the REXMarket contract and then the REXMarket contract manages IDA pools to distribute these tokens out to the streamers. **Ricochet Auto-farming Tokens are ephemeral** they are minted when someone is streaming to the REXMarket and are burned when the stream is closed. When stream is closed, the REXToken (SLPx) gets downgraded and after the closed stream, the streamer will hold the underlying token unstaked from any rewards pools (e.g. when you stop streaming to the USDC>>SLPx pool, you are left with SLP tokens, the ERC20 LP token).
+# REX Market Modifications
 
-The source of this limitation is the inability to update IDA shares based on how much is IDA distibuted. As a streamers balance accures due to the IDA distributions, they get more and more shares in the REXToken IDA pool. But, its not possible to update the IDA shares of the underlying pool (or the complexity of doing so is to high as to make it impossible). As a user streams more and more into the SLPx REXMarket, they accumulate more and more shares in the REXToken IDA pool. As a result, the REXMarket acts as a proxy for the IDA shares.
+## IDA Share Management
+There are Token-level IDA pools, a pool that distributes SDTx rewards and there are Market-level IDA pools. Shares to both pools are managed independently.
 
-:star: It is possible to take SLP tokens and upgrade them to SLPx tokens outside of the REXMarket. Its just a problem when you're receiving SLPx tokens via IDA distributions. As you receive more SLPx tokens via the IDA of the REXMarket, its not possible to update your IDA shares in the underlying SLPx token since this would require one `updateSubscription` call for each streamer.  
+IDA shares are managed by two pools, one pool for the underlying StakeDAO strategy LP token sdam3CRVrex and another for SDTx rewards.
+```
+// The sdam3CRVrex tokens produced by the market are distributed to streamers proportional to their stream
+newCtx = _exchange._updateSubscriptionWithContext(newCtx, self.outputIndexId, requester, uint128(uint(int(requesterFlowRate))), _exchange.outputToken);
 
-# Enhancements
-Currently, REX Tokens can stand alone, they would NOT support IDA or CFA streaming but would still support upgrade/downgrade so holding them you would get the benefits of auto-farming. IDA shares on the REX token are simple to manage when you're upgrading, downgrading, or ERC20 transfering tokens, since these are individual operations by an individual account, so its as simple as calling `updateSubscription` in each of those methods.
+// The amount of SDTx token rewards to distribute is proportional to the users sdam3CRVrex balanceOf
+// While streaming, credit the streamer with IDA shares of whatever sdam3CRVrex sends the market
+uint128 sdam3CRVrexBalance = ISuperToken(address(self.sdam3CRVrex)).balanceOf(requester);
+newCtx = _exchange._updateSubscriptionWithContext(newCtx, self.sdtxIndexId, requester, sdam3CRVrexBalance), _exchange.sushixToken);
 
-While receiving the tokens via and IDA distribution, which is the case in the USDC>>SLPx market the REXMarket itself must be _delegated_ the streamers IDA shares in the underlying REXToken and then it will get forwarded to the streamer using IDA pools on the REXMarket. There must be an added requirement that isn't currently implemented for the REXToken to work as both a standalone product as well as something you can stream into:
+// NEW: Delegate sdam3CRVrex SDTx rewards pool shares to the market
+//      sdam3CRVrexBalance is proportional to shares distributes inside sdam3CRVrex's SDTx IDA pool
+self.sdam3CRVrex.delegateTo(requester, address(this), sdam3CRVrexBalance);
 
-:star: If a streamer already holds REXTokens, then the existing IDA shares they have need to be transfered to the REX Market. When the streamer stops streaming, the IDA shares need to be transfered back to the holder.
+// Subsidy shares are dependent on the flow rate, stream more, get more shares.
+newCtx = _exchange._updateSubscriptionWithContext(newCtx, self.subsidyIndexId, requester, uint128(uint(int(requesterFlowRate))), _exchange.subsidyToken);
+```
 
-This is a change from the current implementation where SLPx tokens can only be created by the REXMarket contract that owns them. When a stream starts, the REXMarket is the one getting credited IDA shares. And the REXMarket then forwards the rewards, managing its own IDA share pool for the rewards tokens as well as the underlying LP tokens. When streaming stops, the tokens in the holders possession are downgraded, their shares removed. _Upgrade and downgrade by non-owners of the SLPx token are not supported_. This is handled but the internal lock mechanism (see the _Ownable and Lockable_ section of this doc for more details.)
+:star: If a streamer already holds sdam3CRVrex, then the existing IDA shares they have need to be `delegateTo` to the REX Market. When the streamer stops streaming, the IDA shares need to be delegate back to the holder.
+```
+if (isTerminating) {
 
-The new implementation will NOT downgrade tokens and instead, on stream close the shares will be transfered from the REXMarket to the streamer. Adding this single feature will allow both holding and streaming into these Ricochet auto-farming tokens.
+  // Delegate back to the requester
+  balance = self.sdam3CRVrex.balanceOf(requester);
+  self.sdam3CRVrex.delegateTo(address(this), requester, balance);
+
+}
+```
+While streaming the sdam3CRVrex IDA shares for the SDTx distributions are given to the REX Market and when it receives the SDTx, it forwards distributes it into it's IDA based on your proportion of sdam3CRVrex tokens.
