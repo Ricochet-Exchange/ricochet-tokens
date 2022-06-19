@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity 0.7.6;
 
-import "./sushiswap/IMiniChefV2.sol";
+import "./masterChef/IMiniChefV2.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@superfluid-finance/ethereum-contracts/contracts/superfluid/SuperToken.sol";
